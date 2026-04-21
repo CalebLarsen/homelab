@@ -1,0 +1,24 @@
+name: cross-seed
+
+services:
+  cross-seed:
+    image: "{{ item.image }}"
+    container_name: cross-seed
+    user: "{{ puid }}:{{ pgid }}"
+    command: daemon
+    environment:
+      - TZ="{{ timezone }}"
+    volumes:
+      - "{{ config_root }}/cross-seed:/config"
+      # Single bind mount of the whole data_root. Two separate mounts
+      # (torrents + cross-seed-links) look like different filesystems to
+      # link() inside the container and cause EXDEV even though they're the
+      # same mergerfs underneath. One mount = one "device" = hardlinks resolve.
+      - "{{ data_root }}:/data"
+{% set use_vpn = item.use_vpn | default(false) %}
+{% set host_port = item.port %}
+{% set internal_port = 2468 %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+
+{% include "_network_footer.yml.j2" %}

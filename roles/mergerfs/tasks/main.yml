@@ -1,0 +1,112 @@
+---
+# Ubuntu's apt mergerfs lags well behind upstream (2.33.x in noble as of 2026)
+# and is missing the `link_exdev` option the fstab below needs. Pull the
+# upstream .deb from trapexit's GitHub releases instead; version is pinned in
+# inventory so upgrades are deliberate.
+- name: Check installed mergerfs version
+  command: mergerfs --version
+  register: _mergerfs_installed
+  failed_when: false
+  changed_when: false
+
+- name: Download upstream mergerfs .deb
+  get_url:
+    url: "https://github.com/trapexit/mergerfs/releases/download/{{ mergerfs_version }}/mergerfs_{{ mergerfs_version }}.{{ ansible_distribution | lower }}-{{ ansible_distribution_release }}_{{ _deb_arch }}.deb"
+    dest: "/tmp/mergerfs_{{ mergerfs_version }}.deb"
+    mode: '0644'
+  vars:
+    _deb_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+  when: mergerfs_version not in (_mergerfs_installed.stdout | default(''))
+  register: _mergerfs_deb
+
+- name: Install upstream mergerfs
+  apt:
+    deb: "/tmp/mergerfs_{{ mergerfs_version }}.deb"
+  when: mergerfs_version not in (_mergerfs_installed.stdout | default(''))
+  register: _mergerfs_upgraded
+
+- name: Make sure NVME folder exists to add the base drive to the MergerFS pool
+  file:
+    path: "{{ storage.nvme_path }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0777'
+
+- name: Mount individual physical disks
+  mount:
+    path: "/media/{{ item.name }}"
+    src: "UUID={{ item.uuid }}"
+    fstype: ext4
+    opts: "defaults,nofail"
+    state: mounted
+  loop: "{{ storage.disks }}"
+
+- name: Ensure mount point exists
+  file:
+    path: "{{ storage.pool_path }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+
+- name: Check whether mergerfs pool is currently mounted
+  command: "mountpoint -q {{ storage.pool_path }}"
+  register: _pool_mounted_check
+  failed_when: false
+  changed_when: false
+
+# Write fstab regardless; actual mount/remount is conditional below because
+# a running mergerfs can't be live-reconfigured with options it doesn't know
+# (e.g. link_exdev on a pre-2.40 binary).
+- name: Write mergerFS entry in /etc/fstab
+  mount:
+    path: "{{ storage.pool_path }}"
+    src: "{{ storage.nvme_path }}:{{ storage.disks | map(attribute='name') | map('regex_replace', '^(.*)$', '/media/\\1') | join(':') }}"
+    fstype: fuse.mergerfs
+    # link-exdev=abs-pool-symlink: when a hardlink would fail because source
+    # and destination are on different underlying branches, mergerfs silently
+    # falls back to creating a symlink pointing into the pool. Consumers
+    # (cross-seed, sonarr/radarr, qBittorrent) see a working path; no extra
+    # disk space is used vs. a true hardlink.
+    # NB: option name uses HYPHEN in 2.41+, underscore is silently ignored.
+    # cache.files=partial: enable the page cache for read/write so mmap()
+    # works. Without this, qBittorrent's piece I/O fails with ENODEV
+    # ("No such device") on file_mmap. dropcacheonclose=true keeps the cache
+    # from accumulating during long-running recheck/verify passes.
+    opts: "defaults,nonempty,allow_other,use_ino,category.create=ff,link-exdev=abs-pool-symlink,cache.files=partial,dropcacheonclose=true,minfreespace=20G,nofail"
+    state: "{{ 'present' if _pool_mounted_check.rc == 0 else 'mounted' }}"
+  register: _mergerfs_fstab
+
+- name: Notify operator about mergerfs remount requirement
+  debug:
+    msg: |
+      mergerfs was upgraded and/or its fstab options changed, but the pool is
+      already mounted by the previous (now-outdated) mergerfs process.
+      To pick up the new binary + options:
+        sudo reboot
+      OR manually (if you'd rather keep uptime on everything else):
+        sudo systemctl stop docker
+        sudo umount {{ storage.pool_path }}
+        sudo mount {{ storage.pool_path }}
+        sudo systemctl start docker
+  when:
+    - _pool_mounted_check.rc == 0
+    - (_mergerfs_upgraded.changed | default(false)) or (_mergerfs_fstab.changed | default(false))
+
+# Pre-create the pool's directory tree on every underlying branch. mergerfs
+# can only hardlink within a single branch; if the destination's parent dir
+# only exists on one branch, mergerfs's create policy may put new files on
+# a *different* branch and the link fails with EXDEV. Materializing the
+# parents on all branches lets the policy keep related files co-located.
+- name: Create pool subdirectories on every mergerfs branch
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0755'
+  loop: "{{ _all_branches | product(storage.pool_subdirs) | map('join', '/') | list }}"
+  vars:
+    _all_branches: "{{ [storage.nvme_path] + (storage.disks | map(attribute='name') | map('regex_replace', '^(.*)$', '/media/\\1') | list) }}"
+  loop_control:
+    label: "{{ item }}"

@@ -1,0 +1,41 @@
+# Ansible
+*.retry
+ansible.log
+.ansible/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.python-version
+
+# Secrets (Sanity checks)
+*.key
+*.pem
+*.p12
+*.age
+!secrets.sops.yml
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local development
+local_vars.yml
+inventory/hosts.local.yml
+inventory/group_vars/all/local.yml
+
+# Diagnostics / debug output that frequently contains container internals
+*.log
+output.log
+decrypted_secrets.yml
+*.decrypted.yml

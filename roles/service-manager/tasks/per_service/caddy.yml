@@ -1,0 +1,21 @@
+---
+- name: Ensure Caddy configuration directory exists
+  file:
+    path: "{{ config_root }}/caddy"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+
+- name: Ensure static website directory exists
+  file:
+    path: "{{ storage.site_root }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0755'
+
+- name: Deploy Caddyfile from template
+  template:
+    src: Caddyfile.j2
+    dest: "{{ config_root }}/caddy/Caddyfile"
+  notify: restart caddy

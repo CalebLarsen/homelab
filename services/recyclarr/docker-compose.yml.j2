@@ -1,0 +1,21 @@
+name: recyclarr
+
+services:
+  recyclarr:
+    image: "{{ item.image }}"
+    container_name: recyclarr
+    user: "{{ puid }}:{{ pgid }}"
+    volumes:
+      - "{{ config_root }}/recyclarr:/config"
+      - "/home/{{ ansible_user }}/services/recyclarr/recyclarr.yml:/config/recyclarr.yml:ro"
+    environment:
+      - TZ="{{ timezone }}"
+    networks:
+      - "{{ docker_network }}"
+    # Recyclarr will exit after sync, we want it to run periodically or once
+    # For now, we'll let it run once on deploy.
+    restart: "no"
+
+networks:
+  "{{ docker_network }}":
+    external: true

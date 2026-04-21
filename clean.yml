@@ -1,0 +1,61 @@
+---
+# Cleans the runtime state of the homelab:
+#   - Tears down every Compose project via `compose down`
+#   - Stops the cloudflared systemd service (leaves the binary + unit in place)
+#   - Prunes stopped containers and resets the config directory
+#
+# Does NOT undo:
+#   - Bootstrap (apt packages, docker install, user groups)
+#   - mergerfs fstab entry or the pool mount
+#   - The cloudflared binary / systemd unit / tunnel credentials
+#   - Cloudflare DNS records or the tunnel itself
+#   - Contents of {{ data_root }} (media, torrent payloads)
+#
+# Note: app-internal state (qBittorrent torrent metadata, Overseerr requests,
+# *arr library catalogs) lives under config_root and is wiped by clean. This
+# is intentional — config_root is the control plane and is regenerable from
+# the playbook. After a clean+deploy, expect to re-add torrents and re-import
+# *arr libraries via the UI.
+#
+# Re-running `make deploy` after clean will restore a working deployment.
+- name: Clean Homelab Deployment
+  hosts: homelab
+  become: yes
+  tasks:
+    - name: Tear down service Compose projects
+      community.docker.docker_compose_v2:
+        project_src: "services/{{ item.name }}"
+        state: absent
+        remove_orphans: true
+        remove_volumes: false
+      loop: "{{ services }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Stop cloudflared systemd service
+      systemd:
+        name: cloudflared
+        state: stopped
+      # Not an error if the service was never installed.
+      failed_when: false
+
+    - name: Prune stopped containers
+      community.docker.docker_prune:
+        containers: true
+
+    - name: Remove configuration directory
+      file:
+        path: "{{ config_root }}"
+        state: absent
+
+    - name: Recreate empty configuration directory
+      file:
+        path: "{{ config_root }}"
+        state: directory
+        owner: "{{ puid }}"
+        group: "{{ pgid }}"
+        mode: '0755'
+
+    - name: Report Status
+      debug:
+        msg: "Homelab shut down and configs purged. Data in {{ data_root }} was preserved."

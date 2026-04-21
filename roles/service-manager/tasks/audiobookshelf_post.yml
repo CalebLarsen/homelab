@@ -1,0 +1,58 @@
+---
+- name: Ensure admin user and default library exist in Audiobookshelf
+  no_log: true
+  shell: |
+    docker exec audiobookshelf node -e "
+    global.ConfigPath='/config';
+    global.MetadataPath='/metadata';
+    const Database = require('./server/Database');
+    const Auth = require('./server/Auth');
+    const TokenManager = require('./server/auth/TokenManager');
+
+    Database.init().then(async () => {
+      const hasRoot = await Database.models.user.getHasRootUser();
+      if (!hasRoot) {
+        const tm = new TokenManager();
+        TokenManager.TokenSecret = process.env.JWT_SECRET_KEY || Database.serverSettings.tokenSecret || '{{ admin_password }}';
+        const auth = new Auth();
+        const pash = await auth.localAuthStrategy.hashPassword('{{ admin_password }}');
+        await Database.createRootUser('admin', pash, auth);
+        console.log('Admin user created');
+      } else {
+        console.log('Root user already exists');
+      }
+
+      const libraryName = 'Audiobooks';
+      const libraryPath = '/data/media/audiobooks';
+      let library = await Database.models.library.findOne({ where: { name: libraryName } });
+
+      if (!library) {
+        const Library = require('./server/models/Library');
+        library = await Database.models.library.create({
+          name: libraryName,
+          mediaType: 'book',
+          displayOrder: 1,
+          settings: Library.getDefaultLibrarySettingsForMediaType('book')
+        });
+
+        await Database.models.libraryFolder.create({
+          path: libraryPath,
+          libraryId: library.id
+        });
+        console.log('Audiobooks library created');
+      } else {
+        console.log('Audiobooks library already exists');
+      }
+
+      process.exit(0);
+    }).catch(e => {
+      console.error(e);
+      process.exit(1);
+    })"
+  register: _abs_init_res
+  changed_when: "'created' in _abs_init_res.stdout"
+  # Audiobookshelf may be slow to accept `docker exec` right after first start;
+  # a transient failure here shouldn't block the rest of the deploy. The
+  # script is idempotent — a subsequent run picks up the user/library.
+  ignore_errors: true
+  notify: restart audiobookshelf

@@ -1,0 +1,332 @@
+---
+# roles/service-manager/tasks/api_wiring.yml
+
+- name: Set API key facts from secrets
+  set_fact:
+    sonarr_api_key: "{{ api_keys.sonarr }}"
+    radarr_api_key: "{{ api_keys.radarr }}"
+    prowlarr_api_key: "{{ api_keys.prowlarr }}"
+
+# Data dict driving the Sonarr/Radarr API provisioning below. Add a new *arr
+# here and every step (readiness wait, root folder, download client, Prowlarr
+# linkage) picks it up automatically.
+- name: Set Servarr config
+  set_fact:
+    servarrs:
+      - name: sonarr
+        port: 8989
+        api_key: "{{ sonarr_api_key }}"
+        api_ver: v3
+        root_folder: /data/media/tv
+        prowlarr:
+          impl: Sonarr
+          base_url: http://sonarr:8989
+          sync_categories: [5000, 5010, 5030, 5040, 5070, 5080]
+        # extra keys merged into the download-client POST body
+        download_client_extra: {}
+      - name: radarr
+        port: 7878
+        api_key: "{{ radarr_api_key }}"
+        api_ver: v3
+        root_folder: /data/media/movies
+        prowlarr:
+          impl: Radarr
+          base_url: http://radarr:7878
+          sync_categories: [2000, 2010, 2020, 2030, 2035, 2040, 2045, 2050, 2060]
+        download_client_extra: { priority: 1 }
+
+- name: Wait for Servarr and Prowlarr APIs
+  uri:
+    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/system/status?apikey={{ item.api_key }}"
+    method: GET
+  register: _status_check
+  until: _status_check.status == 200
+  retries: 10
+  delay: 5
+  loop: "{{ servarrs + [{'name': 'prowlarr', 'port': 9696, 'api_key': prowlarr_api_key, 'api_ver': 'v1'}] }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+
+- name: Run Prowlarr Tasks
+  include_tasks: prowlarr_indexers.yml
+
+# --- SERVARR PROVISIONING (loop-driven) ---
+
+- name: Ensure Servarr root folder
+  uri:
+    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/rootfolder"
+    method: POST
+    headers: { X-Api-Key: "{{ item.api_key }}" }
+    body_format: json
+    body:
+      path: "{{ item.root_folder }}"
+    status_code: [201, 400]
+  loop: "{{ servarrs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Get Servarr media management config
+  uri:
+    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/config/mediamanagement"
+    method: GET
+    headers: { X-Api-Key: "{{ item.api_key }}" }
+  register: _mm_config
+  loop: "{{ servarrs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Enable hardlinks in Servarr media management
+  uri:
+    url: "http://localhost:{{ item.item.port }}/api/{{ item.item.api_ver }}/config/mediamanagement/{{ item.json.id }}"
+    method: PUT
+    headers: { X-Api-Key: "{{ item.item.api_key }}" }
+    body_format: json
+    # Round-trip the full object with copyUsingHardlinks flipped on. Servarr
+    # APIs require the complete config payload, not a partial patch.
+    body: "{{ item.json | combine({'copyUsingHardlinks': true}) }}"
+    status_code: [200, 202]
+  loop: "{{ _mm_config.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  no_log: true
+  when: not (item.json.copyUsingHardlinks | default(false))
+
+- name: Register qBittorrent as download client in each Servarr
+  uri:
+    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/downloadclient"
+    method: POST
+    headers: { X-Api-Key: "{{ item.api_key }}" }
+    body_format: json
+    body: "{{ base | combine(item.download_client_extra) }}"
+    status_code: [201, 400]
+  loop: "{{ servarrs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  vars:
+    base:
+      enable: true
+      name: qBittorrent
+      implementation: QBittorrent
+      configContract: QBittorrentSettings
+      fields:
+        - { name: host, value: gluetun }
+        - { name: port, value: 6969 }
+        - { name: username, value: admin }
+        - { name: password, value: "{{ admin_password }}" }
+
+- name: Get existing Prowlarr applications
+  uri:
+    url: "http://localhost:9696/api/v1/applications"
+    method: GET
+    headers: { X-Api-Key: "{{ prowlarr_api_key }}" }
+  register: _prowlarr_apps
+
+- name: Link Prowlarr to each Servarr
+  uri:
+    url: "http://localhost:9696/api/v1/applications{{ ('/' ~ existing_id) if existing_id else '' }}?forceSave=true"
+    method: "{{ 'PUT' if existing_id else 'POST' }}"
+    headers: { X-Api-Key: "{{ prowlarr_api_key }}" }
+    body_format: json
+    body: "{{ base_body | combine({'id': existing_id}) if existing_id else base_body }}"
+    status_code: [200, 201, 202]
+  loop: "{{ servarrs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  vars:
+    existing_matches: "{{ _prowlarr_apps.json | selectattr('name', 'equalto', item.prowlarr.impl) | list if _prowlarr_apps.json is defined else [] }}"
+    existing_id: "{{ existing_matches[0].id if existing_matches | length > 0 else none }}"
+    base_body:
+      name: "{{ item.prowlarr.impl }}"
+      implementation: "{{ item.prowlarr.impl }}"
+      configContract: "{{ item.prowlarr.impl }}Settings"
+      enable: true
+      syncLevel: fullSync
+      fields:
+        - { name: prowlarrUrl, value: "http://gluetun:9696" }
+        - { name: baseUrl, value: "{{ item.prowlarr.base_url }}" }
+        - { name: apiKey, value: "{{ item.api_key }}" }
+        - { name: syncCategories, value: "{{ item.prowlarr.sync_categories }}" }
+  when: _prowlarr_apps.json is defined
+
+# --- CLEANUPARR PROVISIONING ---
+# Cleanuparr requires an admin user to be created via its web UI before its
+# API becomes reachable. Until that bootstrap is automatable, we seed the
+# sqlite DB directly. Image tag pinning (see docker-compose template) limits
+# exposure to schema drift on upgrades.
+
+- name: Wait for Cleanuparr API to be ready
+  uri:
+    url: "http://localhost:11011/api/health"
+    status_code: [200, 401, 403]
+  retries: 5
+  delay: 5
+  when: "'cleanuparr' in services | map(attribute='name') | list"
+
+- name: Create Cleanuparr SQL Scripts
+  copy:
+    dest: "{{ config_root }}/cleanuparr/{{ item.file }}"
+    content: "{{ item.sql }}"
+  loop_control:
+    label: "{{ item.file }}"
+  no_log: true
+  loop:
+    - file: inject_users.sql
+      sql: |
+        INSERT OR REPLACE INTO users (id, username, password_hash, totp_secret, totp_enabled, api_key, setup_completed, failed_login_attempts, created_at, updated_at)
+        VALUES ('0AD3F92B-BA9D-4B24-85F3-B509AC6994F1', 'admin', '{{ cleanuparr_secret.password_hash }}', '', 0, '{{ cleanuparr_secret.api_key }}', 1, 0, '2026-04-15 12:00:00', '2026-04-15 12:00:00');
+    - file: inject_configs.sql
+      sql: |
+        PRAGMA foreign_keys = ON;
+        DELETE FROM arr_instances;
+        DELETE FROM arr_configs;
+        DELETE FROM download_clients;
+        DELETE FROM stall_rules;
+        DELETE FROM queue_cleaner_configs;
+        DELETE FROM notification_configs;
+        DELETE FROM seeker_instance_configs;
+
+        INSERT OR REPLACE INTO arr_configs (id, type, failed_import_max_strikes) VALUES ('0B38A68F-3D7B-4D98-AE96-115DA62D9AF2', 'sonarr', 3);
+        INSERT OR REPLACE INTO arr_configs (id, type, failed_import_max_strikes) VALUES ('6096303A-399C-42B8-BE8F-60A02CEC5A51', 'radarr', 3);
+
+        INSERT OR REPLACE INTO queue_cleaner_configs (id, cron_expression, downloading_metadata_max_strikes, enabled, failed_import_delete_private, failed_import_ignore_private, failed_import_max_strikes, failed_import_pattern_mode, failed_import_patterns, failed_import_skip_if_not_found_in_client, ignored_downloads, use_advanced_scheduling, process_no_content_id)
+        VALUES ('098AE890-21DD-4A23-9BA8-ED5CE1AB4817', '0 0/5 * ? * * *', 3, 1, 0, 0, 3, 'Exclude', '[]', 1, '[]', 0, 0);
+
+        INSERT OR REPLACE INTO arr_instances (id, enabled, arr_config_id, name, url, api_key, version) VALUES ('03E5F334-0F61-4DAE-9F3A-E0A315397906', 1, '0B38A68F-3D7B-4D98-AE96-115DA62D9AF2', 'Sonarr', 'http://sonarr:8989', '{{ sonarr_api_key }}', 4.0);
+        INSERT OR REPLACE INTO arr_instances (id, enabled, arr_config_id, name, url, api_key, version) VALUES ('13E5F334-0F61-4DAE-9F3A-E0A315397907', 1, '6096303A-399C-42B8-BE8F-60A02CEC5A51', 'Radarr', 'http://radarr:7878', '{{ radarr_api_key }}', 5.0);
+
+        INSERT OR REPLACE INTO download_clients (id, enabled, name, type_name, type, host, username, password, url_base) VALUES ('5B5D4ED9-DEF2-4D60-BDBC-0ACA8C120614', 1, 'My qBittorrent', 'qbittorrent', 'torrent', 'http://gluetun:6969', 'admin', '{{ admin_password }}', '');
+
+        INSERT OR REPLACE INTO stall_rules (id, reset_strikes_on_progress, minimum_progress, queue_cleaner_config_id, name, enabled, max_strikes, privacy_type, min_completion_percentage, max_completion_percentage, delete_private_torrents_from_client)
+        VALUES ('C39A65FD-F9EF-4913-AA20-E558ADF183D0', 1, '', '098AE890-21DD-4A23-9BA8-ED5CE1AB4817', 'Auto-Remove Stalled', 1, 3, 'Both', 0, 100, 0);
+
+        INSERT OR REPLACE INTO notification_configs (id, name, type, is_enabled, on_failed_import_strike, on_stalled_strike, on_slow_strike, on_queue_item_deleted, on_download_cleaned, on_category_changed, created_at, updated_at, on_search_triggered)
+        VALUES ('0B38A68F-3D7B-4D98-AE96-115DA62D9AF2', 'Sonarr Notification', 'sonarr', 0, 0, 0, 0, 0, 0, 0, '2026-04-15 12:00:00', '2026-04-15 12:00:00', 0);
+        INSERT OR REPLACE INTO notification_configs (id, name, type, is_enabled, on_failed_import_strike, on_stalled_strike, on_slow_strike, on_queue_item_deleted, on_download_cleaned, on_category_changed, created_at, updated_at, on_search_triggered)
+        VALUES ('6096303A-399C-42B8-BE8F-60A02CEC5A51', 'Radarr Notification', 'radarr', 0, 0, 0, 0, 0, 0, 0, '2026-04-15 12:00:00', '2026-04-15 12:00:00', 0);
+
+        INSERT OR REPLACE INTO seeker_instance_configs (id, arr_instance_id, enabled, skip_tags, last_processed_at, current_cycle_id, total_eligible_items, active_download_limit, min_cycle_time_days)
+        VALUES ('03E5F334-0F61-4DAE-9F3A-E0A315397906', '03E5F334-0F61-4DAE-9F3A-E0A315397906', 0, '[]', NULL, '', 0, 0, 7);
+        INSERT OR REPLACE INTO seeker_instance_configs (id, arr_instance_id, enabled, skip_tags, last_processed_at, current_cycle_id, total_eligible_items, active_download_limit, min_cycle_time_days)
+        VALUES ('13E5F334-0F61-4DAE-9F3A-E0A315397907', '13E5F334-0F61-4DAE-9F3A-E0A315397907', 0, '[]', NULL, '', 0, 0, 7);
+  when: "'cleanuparr' in services | map(attribute='name') | list"
+
+- name: Inject Cleanuparr Configuration Scripts (Post-start)
+  shell: |
+    sqlite3 -bail {{ config_root }}/cleanuparr/users.db < {{ config_root }}/cleanuparr/inject_users.sql
+    sqlite3 -bail {{ config_root }}/cleanuparr/cleanuparr.db < {{ config_root }}/cleanuparr/inject_configs.sql
+  when: "'cleanuparr' in services | map(attribute='name') | list"
+  notify: restart cleanuparr
+
+# --- OVERSEERR PROVISIONING ---
+
+- name: Check if Overseerr API is authenticated
+  uri:
+    url: "http://localhost:5055/api/v1/user"
+    method: GET
+    headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+  register: _overseerr_auth_check
+  # Probe only — a 401/403 here means Overseerr isn't configured yet, which
+  # is a valid state on first deploy. Downstream tasks gate on
+  # _overseerr_auth_check.status == 200.
+  failed_when: false
+  changed_when: false
+
+- name: Provision Overseerr (Only if authenticated)
+  when: "_overseerr_auth_check.status | default(0) == 200"
+  block:
+    - name: Trigger Plex user import
+      uri:
+        url: "http://localhost:5055/api/v1/settings/plex/users"
+        method: POST
+        headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+      # Kicks a background import in Overseerr; we don't need to block the
+      # deploy on its response.
+      failed_when: false
+
+    - name: Get existing Overseerr users
+      uri:
+        url: "http://localhost:5055/api/v1/user"
+        method: GET
+        headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+      register: _existing_users
+
+    - name: Provision Overseerr users
+      uri:
+        url: "http://localhost:5055/api/v1/user/{{ item_user.id }}"
+        method: PUT
+        headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+        body_format: json
+        body:
+          permissions: "{{ item_config.permissions }}"
+      loop: "{{ overseerr_secret.users }}"
+      loop_control:
+        loop_var: item_config
+      vars:
+        item_user: "{{ _existing_users.json.results | selectattr('email', 'equalto', item_config.email) | first | default(none) }}"
+      when: item_user is not none
+
+    - name: Enable Overseerr Auto-Tagging (Radarr/Sonarr)
+      uri:
+        url: "http://localhost:5055/api/v1/settings/{{ item }}/0"
+        method: PUT
+        headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+        body_format: json
+        body: { tagRequests: true }
+        status_code: [200, 201, 400]
+      loop: ['radarr', 'sonarr']
+
+# --- PLEX PROVISIONING ---
+
+- name: Get existing Plex libraries
+  uri:
+    url: "http://localhost:32400/library/sections"
+    method: GET
+    headers:
+      X-Plex-Token: "{{ plex_secret.online_token }}"
+      Accept: application/json
+  register: _plex_libraries
+  # Probe — any non-200 means Plex isn't ready for library provisioning yet.
+  # The subsequent "Provision Plex libraries" task gates on .status == 200.
+  failed_when: false
+
+- name: Provision Plex libraries
+  uri:
+    url: "http://localhost:32400/library/sections?name={{ item.name | urlencode }}&type={{ item.type }}&agent={{ 'tv.plex.agents.movie' if item.type == 'movie' else 'tv.plex.agents.series' }}&scanner={{ ('Plex Movie' if item.type == 'movie' else 'Plex TV Series') | urlencode }}&language=en-US&location={{ item.path | urlencode }}"
+    method: POST
+    headers: { X-Plex-Token: "{{ plex_secret.online_token }}" }
+    status_code: 201
+  loop: "{{ overseerr.libraries }}"
+  when:
+    - "_plex_libraries.status | default(0) == 200"
+    - "_plex_libraries.json is defined"
+    - "item.name not in (_plex_libraries.json.MediaContainer.Directory | default([]) | map(attribute='title') | list)"
+
+# --- CROSS-SEED PROVISIONING ---
+# cross-seed needs per-indexer torznab URLs from Prowlarr. Enumerate them now
+# (Prowlarr is up + ready by this point) and template the config; cross-seed
+# will pick it up on its next restart cycle (notified handler).
+
+- name: Get Prowlarr indexers for cross-seed
+  uri:
+    url: "http://localhost:9696/api/v1/indexer"
+    method: GET
+    headers: { X-Api-Key: "{{ prowlarr_api_key }}" }
+  register: _prowlarr_indexers
+  when: "'cross-seed' in services | map(attribute='name') | list"
+
+- name: Template cross-seed config with discovered indexers
+  template:
+    src: cross-seed-config.js.j2
+    dest: "{{ config_root }}/cross-seed/config.js"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0644'
+  vars:
+    cross_seed_indexers: "{{ _prowlarr_indexers.json | selectattr('enable', 'equalto', true) | list }}"
+  when:
+    - "'cross-seed' in services | map(attribute='name') | list"
+    - _prowlarr_indexers.json is defined
+  notify: restart cross-seed

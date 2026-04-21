@@ -1,0 +1,84 @@
+{
+  "clientId": "{{ overseerr_secret.client_id }}",
+  "vapidPrivate": "{{ overseerr_secret.vapid_private }}",
+  "vapidPublic": "{{ overseerr_secret.vapid_public }}",
+  "main": {
+    "apiKey": "{{ overseerr_secret.api_key }}",
+    "applicationTitle": "Overseerr",
+    "applicationUrl": "https://request.{{ cloudflare.domain }}",
+    "csrfProtection": false,
+    "cacheImages": false,
+    "defaultPermissions": 32,
+    "defaultQuotas": {
+      "movie": {},
+      "tv": {}
+    },
+    "hideAvailable": false,
+    "localLogin": true,
+    "newPlexLogin": true,
+    "region": "",
+    "originalLanguage": "",
+    "trustProxy": true,
+    "partialRequestsEnabled": true,
+    "locale": "en"
+  },
+  "plex": {
+    "name": "{{ overseerr.plex_name }}",
+    "ip": "plex.{{ cloudflare.domain }}",
+    "port": 443,
+    "useSsl": true,
+    "libraries": [
+      {
+        "id": "2",
+        "name": "Movies",
+        "enabled": true,
+        "type": "movie"
+      },
+      {
+        "id": "1",
+        "name": "TV Shows",
+        "enabled": true,
+        "type": "show"
+      }
+    ],
+    "machineId": "{{ overseerr_secret.plex_machine_id }}"
+  },
+  "tautulli": {},
+  "radarr": [
+    {
+      "name": "Radarr",
+      "hostname": "radarr",
+      "port": 7878,
+      "apiKey": "{{ api_keys.radarr }}",
+      "useSsl": false,
+      "activeProfileId": 1,
+      "activeProfileName": "Any",
+      "activeDirectory": "/data/media/movies",
+      "is4k": false,
+      "minimumAvailability": "announced",
+      "isDefault": true,
+      "syncEnabled": true,
+      "id": 0
+    }
+  ],
+  "sonarr": [
+    {
+      "name": "Sonarr",
+      "hostname": "sonarr",
+      "port": 8989,
+      "apiKey": "{{ api_keys.sonarr }}",
+      "useSsl": false,
+      "activeProfileId": 1,
+      "activeLanguageProfileId": 1,
+      "activeProfileName": "Any",
+      "activeDirectory": "/data/media/tv",
+      "is4k": false,
+      "isDefault": true,
+      "syncEnabled": true,
+      "id": 0
+    }
+  ],
+  "public": {
+    "initialized": true
+  }
+}

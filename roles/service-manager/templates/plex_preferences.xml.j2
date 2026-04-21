@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Preferences 
+  OldestPreviousVersion="1.41.6.9685-d301f511a" 
+  MachineIdentifier="{{ plex_secret.machine_id }}" 
+  ProcessedMachineIdentifier="{{ plex_secret.processed_machine_id }}" 
+  AnonymousMachineIdentifier="{{ plex_secret.anonymous_machine_id }}" 
+  PlexOnlineToken="{{ plex_secret.online_token }}"
+  PlexOnlineUsername="{{ plex_secret.online_username }}"
+  PlexOnlineMail="{{ plex_secret.online_email }}"
+  MetricsEpoch="1" 
+  GlobalMusicVideoPathMigrated="1" 
+  AcceptedEULA="1"
+  PublishServerOnPlexOnlineKey="1"
+  customConnections="https://plex.{{ cloudflare.domain }}:443"
+  allowedNetworks="{{ plex_allowed_networks | default('192.168.0.0/255.255.0.0,10.0.0.0/255.0.0.0,100.64.0.0/255.192.0.0,172.16.0.0/255.240.0.0') }}"
+/>

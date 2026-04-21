@@ -1,0 +1,19 @@
+name: prowlarr
+
+services:
+  prowlarr:
+    image: "{{ item.image }}"
+    container_name: prowlarr
+{% set use_vpn = item.use_vpn | default(false) %}
+{% set host_port = item.port %}
+{% set internal_port = 9696 %}
+{% include "_service_network.yml.j2" %}
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+    volumes:
+      - "{{ config_root }}/prowlarr:/config"
+    restart: unless-stopped
+
+{% include "_network_footer.yml.j2" %}

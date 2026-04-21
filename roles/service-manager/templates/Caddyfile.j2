@@ -1,0 +1,24 @@
+{
+    auto_https off
+}
+
+http://{{ cloudflare.domain }} {
+    root * /var/www/html
+    file_server
+}
+
+http:// {
+{% for service in services if service.public | default(false) %}
+    {% if service.subdomain != "@" %}
+    @{{ service.name }} host {{ service.subdomain }}.{{ cloudflare.domain }}
+    handle @{{ service.name }} {
+        reverse_proxy {{ service.name }}:{{ service.internal_port | default(service.port) }}
+    }
+    {% endif %}
+{% endfor %}
+
+    # Fallback for unmapped subdomains
+    handle {
+        abort
+    }
+}

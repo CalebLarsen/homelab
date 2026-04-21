@@ -1,0 +1,43 @@
+name: gluetun
+
+services:
+  gluetun:
+    image: "{{ item.image }}"
+    container_name: gluetun
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    environment:
+      - PUID="{{ puid }}"
+      - PGID="{{ pgid }}"
+      - VPN_SERVICE_PROVIDER="{{ vpn_public.provider }}"
+      - VPN_TYPE="wireguard"
+      - WIREGUARD_PRIVATE_KEY="{{ vpn_secret.private_key }}"
+      - WIREGUARD_ADDRESSES="{{ vpn_secret.addresses }}"
+      - SERVER_CITIES="{{ vpn_public.server_cities }}"
+      - FIREWALL_OUTBOUND_SUBNETS="192.168.0.0/16,172.16.0.0/12,10.0.0.0/8,100.64.0.0/10"
+      - TZ="{{ timezone }}"
+      - DNS_ADDRESS=127.0.0.11
+    volumes:
+      - "{{ config_root }}/gluetun:/gluetun"
+    ports:
+      - "8000:8000"
+{% for service in services if service.use_vpn | default(false) %}
+      - "{{ service.port }}:{{ service.port }}"
+{% if service.torrent_port is defined %}
+      - "{{ service.torrent_port }}:{{ service.torrent_port }}"
+      - "{{ service.torrent_port }}:{{ service.torrent_port }}/udp"
+{% endif %}
+{% endfor %}
+    networks:
+      - "{{ docker_network }}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "https://google.com"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  "{{ docker_network }}":
+    external: true

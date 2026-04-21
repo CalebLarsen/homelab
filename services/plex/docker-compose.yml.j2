@@ -1,0 +1,26 @@
+name: plex
+
+services:
+  plex:
+    image: "{{ item.image }}"
+    container_name: plex
+    networks:
+      - "{{ docker_network }}"
+    ports:
+      - 32400:32400
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+      - VERSION=docker
+      - PLEX_CLAIM={{ plex_secret.claim_token | default('') }}
+    devices:
+     - /dev/dri:/dev/dri
+    volumes:
+      - "{{ config_root }}/plex:/config"
+      - "{{ data_root }}/media:/data/media"
+    restart: unless-stopped
+
+networks:
+  "{{ docker_network }}":
+    external: true

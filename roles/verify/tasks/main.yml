@@ -1,0 +1,374 @@
+---
+- name: Verify host storage pool
+  shell: "mount | grep {{ storage.pool_path }} | grep fuse.mergerfs"
+  check_mode: no
+  register: _pool_check
+  changed_when: false
+  failed_when: _pool_check.rc != 0
+
+- name: Verify Cloudflare Tunnel service
+  systemd:
+    name: cloudflared
+    state: started
+  check_mode: no
+  register: _tunnel_status
+  failed_when: _tunnel_status.status.ActiveState != 'active'
+
+- name: Verify Docker service health
+  shell: "docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' {{ item.name }}"
+  loop: "{{ services | rejectattr('name', 'equalto', 'recyclarr') | list }}"
+  check_mode: no
+  register: _container_status
+  failed_when: "'running' not in _container_status.stdout"
+  changed_when: false
+
+- name: Validate Caddy configuration
+  command: docker exec caddy caddy validate --config /etc/caddy/Caddyfile
+  register: _caddy_validation
+  changed_when: false
+  failed_when: _caddy_validation.rc != 0
+  when: "'caddy' in services | map(attribute='name') | list"
+
+- name: Verify Internal DNS Resolution (Sonarr -> Gluetun)
+  command: docker exec sonarr getent hosts gluetun
+  register: _dns_check
+  changed_when: false
+  failed_when: _dns_check.rc != 0
+  when: "'sonarr' in services | map(attribute='name') | list and 'gluetun' in services | map(attribute='name') | list"
+
+- name: Get Host Public IP
+  uri:
+    url: "https://ifconfig.me/ip"
+    return_content: yes
+  register: _host_ip
+  check_mode: no
+  retries: 3
+  delay: 5
+
+- name: VPN Geolocation Verification
+  block:
+    - name: Verify VPN Geolocation (Not Home ISP)
+      shell: docker exec gluetun wget -qO- https://ipinfo.io/json
+      register: _vpn_geo_raw
+      changed_when: false
+      retries: 3
+      delay: 5
+
+    - name: Parse VPN Geolocation
+      set_fact:
+        vpn_geo: "{{ _vpn_geo_raw.stdout | from_json }}"
+
+    - name: Fail if VPN IP matches Host IP
+      fail:
+        msg: "VPN Leak Detected! Container IP matches Host: {{ vpn_geo.ip }}"
+      when:
+        - "vpn_geo is defined"
+        - "vpn_geo.ip == _host_ip.content | trim"
+  when: "'gluetun' in services | map(attribute='name') | list"
+
+- name: Verify MergerFS is writable
+  file:
+    path: "{{ storage.pool_path }}/.ansible_verify_write"
+    state: touch
+  register: _mfs_write
+  failed_when: _mfs_write.failed
+
+- name: Cleanup MergerFS test file
+  file:
+    path: "{{ storage.pool_path }}/.ansible_verify_write"
+    state: absent
+  changed_when: false
+
+- name: Verify Sonarr root folder exists in container
+  command: docker exec sonarr ls -la /data/media/tv
+  register: _sonarr_folder
+  changed_when: false
+  failed_when: _sonarr_folder.rc != 0
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+- name: Verify Radarr root folder exists in container
+  command: docker exec radarr ls -la /data/media/movies
+  register: _radarr_folder
+  changed_when: false
+  failed_when: _radarr_folder.rc != 0
+  when: "'radarr' in services | map(attribute='name') | list"
+
+# --- PIPELINE STEP 0: STORAGE "WRITE-THROUGH" ---
+
+- name: Perform Storage Write-Through Test (Sonarr)
+  command: docker exec sonarr touch /data/media/tv/.ansible_verify_write
+  register: _write_test
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+- name: Verify file exists on Host MergerFS path
+  stat:
+    path: "{{ storage.pool_path }}/media/tv/.ansible_verify_write"
+  register: _host_stat
+  failed_when: not _host_stat.stat.exists
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+- name: Cleanup Storage Write-Through Artifact
+  command: docker exec sonarr rm /data/media/tv/.ansible_verify_write
+  changed_when: false
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+# --- PIPELINE STEP 1: PROWLARR INDEXERS ---
+
+- name: Verify Prowlarr has indexers configured
+  uri:
+    url: "http://localhost:9696/api/v1/indexer"
+    method: GET
+    headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
+  register: _prowlarr_indexers
+  failed_when: "_prowlarr_indexers.json | length == 0"
+  when: "'prowlarr' in services | map(attribute='name') | list"
+  retries: 3
+  delay: 5
+
+- name: Perform Synthetic Indexer Search (Prowlarr)
+  uri:
+    url: "http://localhost:9696/api/v1/search?query=Big%20Buck%20Bunny"
+    method: GET
+    headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
+  register: _prowlarr_search
+  failed_when: _prowlarr_search.json | length == 0
+  retries: 3
+  delay: 10
+  when: "'prowlarr' in services | map(attribute='name') | list"
+
+- name: Verify Prowlarr indexers are synced to Sonarr
+  uri:
+    url: "http://localhost:8989/api/v3/indexer"
+    method: GET
+    headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+  register: _sonarr_indexers
+  until: "(_sonarr_indexers.json | length > 0)"
+  when: "'sonarr' in services | map(attribute='name') | list"
+  retries: 3
+  delay: 5
+
+- name: Verify Prowlarr indexers are synced to Radarr
+  uri:
+    url: "http://localhost:7878/api/v3/indexer"
+    method: GET
+    headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+  register: _radarr_indexers
+  until: "(_radarr_indexers.json | length > 0)"
+  when: "'radarr' in services | map(attribute='name') | list"
+  retries: 3
+  delay: 5
+
+# --- PIPELINE STEP 2: DOWNLOAD CLIENT CONNECTIVITY ---
+
+- name: Test Sonarr Download Client Connection via API
+  uri:
+    url: "http://localhost:8989/api/v3/downloadclient/test"
+    method: POST
+    headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+    body_format: json
+    body:
+      enable: true
+      name: "AnsibleTestHandshake"
+      implementation: "QBittorrent"
+      configContract: "QBittorrentSettings"
+      fields:
+        - { name: "host", value: "gluetun" }
+        - { name: "port", value: 6969 }
+        - { name: "username", value: "admin" }
+        - { name: "password", value: "{{ admin_password }}" }
+  register: _sonarr_test
+  until: "_sonarr_test.status == 200 and ('json' not in _sonarr_test or _sonarr_test.json == {} or _sonarr_test.json | length == 0)"
+  retries: 5
+  delay: 5
+  no_log: true
+  when: "'sonarr' in services | map(attribute='name') | list and 'qbittorrent' in services | map(attribute='name') | list"
+
+- name: Verify Sonarr download client status
+  uri:
+    url: "http://localhost:8989/api/v3/downloadclient"
+    headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+  register: _sonarr_dc
+  failed_when: >
+    _sonarr_dc.json | selectattr('name', 'equalto', 'qBittorrent') | 
+    selectattr('enable', 'equalto', true) | list | length == 0
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+- name: Verify Radarr download client status
+  uri:
+    url: "http://localhost:7878/api/v3/downloadclient"
+    headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+  register: _radarr_dc_v
+  failed_when: >
+    _radarr_dc_v.json | selectattr('name', 'equalto', 'qBittorrent') | 
+    selectattr('enable', 'equalto', true) | list | length == 0
+  when: "'radarr' in services | map(attribute='name') | list"
+
+- name: Login to qBittorrent to get session
+  uri:
+    url: "http://localhost:6969/api/v2/auth/login"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      username: admin
+      password: "{{ admin_password }}"
+    status_code: 200
+  register: _qbittorrent_login
+  no_log: true
+  when: "'qbittorrent' in services | map(attribute='name') | list"
+
+- name: Verify qBittorrent API is reachable
+  uri:
+    url: "http://localhost:6969/api/v2/app/version"
+    method: GET
+    headers:
+      Cookie: "{{ _qbittorrent_login.set_cookie }}"
+  register: _qbittorrent_api
+  failed_when: _qbittorrent_api.status != 200
+  when: "'qbittorrent' in services | map(attribute='name') | list"
+
+- name: Check Overseerr Connectivity
+  uri:
+    url: "http://localhost:5055/api/v1/status"
+    method: GET
+  register: _overseerr_conn
+  failed_when: _overseerr_conn.status != 200
+  when: "'overseerr' in services | map(attribute='name') | list"
+
+# --- PIPELINE STEP 3: OVERSEERR REQUEST FLOW ---
+
+- name: Verify Overseerr Connectivity to Plex
+  uri:
+    url: "http://localhost:5055/api/v1/settings/plex"
+    headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+  register: _overseerr_plex
+  # Accept 403 (Overseerr not yet initialized); fail on other non-200 statuses
+  # or on a 200 response missing the expected `name` field.
+  failed_when: >-
+    _overseerr_plex.status not in [200, 403] or
+    (_overseerr_plex.status == 200 and 'name' not in (_overseerr_plex.json | default({})))
+  when:
+    - "'overseerr' in services | map(attribute='name') | list"
+    - "_overseerr_conn.status == 200"
+
+- name: Verify Overseerr Connectivity to Sonarr
+  uri:
+    url: "http://localhost:5055/api/v1/settings/sonarr"
+    headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+  register: _overseerr_sonarr
+  # Accept 403 (uninitialized); otherwise require a configured default instance.
+  failed_when: >-
+    _overseerr_sonarr.status not in [200, 403] or
+    (_overseerr_sonarr.status == 200 and
+      (_overseerr_sonarr.json | length == 0 or
+       not _overseerr_sonarr.json | selectattr('isDefault', 'equalto', true) | list))
+  when:
+    - "'overseerr' in services | map(attribute='name') | list"
+    - "_overseerr_conn.status == 200"
+
+- name: Verify Overseerr Connectivity to Radarr
+  uri:
+    url: "http://localhost:5055/api/v1/settings/radarr"
+    headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+  register: _overseerr_radarr
+  # Accept 403 (uninitialized); otherwise require a configured default instance.
+  failed_when: >-
+    _overseerr_radarr.status not in [200, 403] or
+    (_overseerr_radarr.status == 200 and
+      (_overseerr_radarr.json | length == 0 or
+       not _overseerr_radarr.json | selectattr('isDefault', 'equalto', true) | list))
+  when:
+    - "'overseerr' in services | map(attribute='name') | list"
+    - "_overseerr_conn.status == 200"
+
+# --- PIPELINE STEP 4: PLEX MEDIA VISIBILITY ---
+
+- name: Verify Plex libraries are configured correctly
+  uri:
+    url: "http://localhost:32400/library/sections"
+    headers: { X-Plex-Token: "{{ plex_secret.online_token }}" }
+    return_content: yes
+  register: _plex_libs
+  failed_when: >
+    'plex' in services | map(attribute='name') | list and
+    ('TV Shows' not in _plex_libs.content or 'Movies' not in _plex_libs.content)
+  check_mode: no
+
+# --- MAINTENANCE & BACKGROUND ---
+
+- name: Check Recyclarr completion status
+  shell: "docker logs recyclarr 2>&1"
+  register: _recyclarr_logs
+  changed_when: false
+  failed_when: >-
+    'Exception' in _recyclarr_logs.stdout or
+    ('Error' in _recyclarr_logs.stdout and 'warning' not in _recyclarr_logs.stdout.lower())
+  # Recyclarr runs once and exits; network hiccups during sync shouldn't fail
+  # the deploy — the next scheduled run will retry.
+  ignore_errors: true
+  when: "'recyclarr' in services | map(attribute='name') | list"
+
+- name: Verify Cleanuparr Health
+  uri:
+    url: "http://localhost:11011/api/health"
+    status_code: 200
+    headers:
+      X-Api-Key: "{{ cleanuparr_secret.api_key }}"
+  register: _cleanuparr_health
+  retries: 5
+  delay: 5
+  when: "'cleanuparr' in services | map(attribute='name') | list"
+
+- name: Verify Cleanuparr Queue Cleaner Config Endpoint
+  uri:
+    url: "http://localhost:11011/api/configuration/queue_cleaner"
+    status_code: 200
+    headers:
+      X-Api-Key: "{{ cleanuparr_secret.api_key }}"
+  register: _queue_cleaner_api
+  when: "'cleanuparr' in services | map(attribute='name') | list"
+  failed_when: _queue_cleaner_api.status != 200
+
+# --- PUBLIC ACCESS ---
+
+- name: Final Connectivity Check (Root)
+  uri:
+    url: "https://{{ cloudflare.domain }}/"
+    status_code: [200, 404, 403, 530] # Static site might be empty or warming up
+  check_mode: no
+  delegate_to: localhost
+  become: no
+  register: _public_check
+  until: _public_check.status in [200, 404, 403, 530]
+  retries: 5
+  delay: 10
+
+- name: Final Connectivity Check (Subdomains)
+  uri:
+    url: "https://{{ item.subdomain }}.{{ cloudflare.domain }}/"
+    status_code: [200, 404, 307, 401, 530] # 307 for Overseerr /setup, 401 for Plex, 530 for warmup
+  check_mode: no
+  loop: "{{ services | selectattr('public', 'defined') | selectattr('public', 'equalto', true) | rejectattr('subdomain', 'equalto', '@') | list }}"
+  delegate_to: localhost
+  become: no
+  register: _subdomain_check
+  until: _subdomain_check.status in [200, 404, 307, 401, 530]
+  retries: 5
+  delay: 10
+
+- name: Fetch Caddy logs on failure
+  command: docker logs caddy --tail 50
+  register: _caddy_logs
+  when: _public_check is failed or _subdomain_check is failed
+  ignore_errors: yes
+
+- name: Show Caddy logs on failure
+  debug:
+    var: _caddy_logs.stdout_lines
+  when: _public_check is failed or _subdomain_check is failed
+
+- name: Report Success
+  debug:
+    msg: "--------------------------------------------------
+          ALL SYSTEMS GREEN! 
+          Your homelab is now fully operational.
+          --------------------------------------------------"

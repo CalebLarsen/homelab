@@ -1,0 +1,22 @@
+name: audiobookshelf
+
+services:
+  audiobookshelf:
+    image: "{{ item.image }}"
+    container_name: audiobookshelf
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+      - ROUTER_BASE_PATH=/audiobookshelf
+    volumes:
+      - "{{ data_root }}/media/audiobooks:/data/media/audiobooks"
+      - "{{ config_root }}/audiobookshelf/config:/config"
+      - "{{ config_root }}/audiobookshelf/metadata:/metadata"
+{% set use_vpn = item.use_vpn | default(false) %}
+{% set host_port = item.port %}
+{% set internal_port = item.internal_port | default(80) %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+
+{% include "_network_footer.yml.j2" %}

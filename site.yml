@@ -1,0 +1,20 @@
+---
+- name: Homelab Deployment
+  hosts: homelab
+  become: yes
+  roles:
+    - { role: bootstrap, tags: ["bootstrap"] }
+    - { role: mergerfs, tags: ["mergerfs"] }
+    - { role: cloudflared, tags: ["cloudflared"] }
+    - { role: service-manager, tags: ["service-manager"] }
+
+  tasks:
+    - name: Flush handlers to apply service changes
+      meta: flush_handlers
+
+    - name: Run verification
+      include_role:
+        name: verify
+        apply:
+          tags: ["verify"]
+      tags: ["verify"]

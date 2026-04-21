@@ -1,0 +1,19 @@
+name: kometa
+
+services:
+  kometa:
+    image: "{{ item.image }}"
+    container_name: kometa
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+    volumes:
+      - "{{ config_root }}/kometa:/config"
+    networks:
+      - "{{ docker_network }}"
+    restart: unless-stopped
+
+networks:
+  "{{ docker_network }}":
+    external: true

@@ -1,0 +1,18 @@
+name: flaresolverr
+
+services:
+  flaresolverr:
+    image: "{{ item.image }}"
+    container_name: flaresolverr
+{% set use_vpn = item.use_vpn | default(false) %}
+{% set host_port = item.port %}
+{% set internal_port = 8191 %}
+{% include "_service_network.yml.j2" %}
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ="{{ timezone }}"
+    restart: unless-stopped
+
+{% include "_network_footer.yml.j2" %}

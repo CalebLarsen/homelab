@@ -1,0 +1,8 @@
+{% if use_vpn %}
+    network_mode: "container:gluetun"
+{% else %}
+    networks:
+      - "{{ docker_network }}"
+    ports:
+      - "{{ host_port }}:{{ internal_port }}"
+{% endif %}

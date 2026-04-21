@@ -1,0 +1,3 @@
+---
+# Configuration is seeded post-deploy via SQL injection in api_wiring.yml
+# (Cleanuparr requires a web-UI admin bootstrap before its API is reachable).

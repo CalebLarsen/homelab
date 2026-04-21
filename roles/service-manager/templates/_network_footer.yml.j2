@@ -1,0 +1,5 @@
+{% if not use_vpn %}
+networks:
+  "{{ docker_network }}":
+    external: true
+{% endif %}

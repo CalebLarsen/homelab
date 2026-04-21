@@ -1,0 +1,20 @@
+name: sonarr
+
+services:
+  sonarr:
+    image: "{{ item.image }}"
+    container_name: sonarr
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+    volumes:
+      - "{{ config_root }}/sonarr:/config"
+      - "{{ data_root }}:/data"
+{% set use_vpn = item.use_vpn | default(false) %}
+{% set host_port = item.port %}
+{% set internal_port = 8989 %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+
+{% include "_network_footer.yml.j2" %}
