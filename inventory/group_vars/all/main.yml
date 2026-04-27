@@ -14,6 +14,23 @@ vpn_public:
   provider: "mullvad"
   server_cities: "Stockholm"
 
+# Host-level scripts and cron jobs managed by the host-cron role. Scripts
+# live at roles/host-cron/files/<name> in the repo and get deployed to
+# ~/bin/<name> on the target. Cron entries are installed via Ansible's
+# `cron` module which matches on `name:` — rename with care.
+host_scripts:
+  - move_old_media.sh
+
+host_cron_jobs:
+  - name: "Tiered media mover"
+    minute: "0"
+    hour: "4"
+    job: "/home/caleb/bin/move_old_media.sh"
+  - name: "Nightly qbittorrent restart"
+    minute: "0"
+    hour: "0"
+    job: "/usr/bin/docker restart qbittorrent"
+
 cloudflare:
   tunnel_name: "homelab"
   domain: "caleb.trade"
@@ -25,6 +42,10 @@ cloudflare:
 # you want to lock against upstream drift; `:latest` is fine for most things.
 # Service-specific extended config (qbittorrent settings, cleanuparr SQL,
 # overseerr libraries, etc.) lives in dedicated blocks further down.
+#
+# NOTE: not every public subdomain lives in this list. Static-only sites that
+# do not have a backend container are handled by their own roles and a hard-
+# coded vhost in Caddyfile.j2 — see roles/notes for note.caleb.trade.
 services:
   - name: caddy  # reverse proxy + static site host
     image: "caddy:latest"
@@ -84,6 +105,15 @@ services:
   - name: cross-seed  # finds .torrent files for existing data via Prowlarr
     port: 2468
     image: "ghcr.io/cross-seed/cross-seed:latest"
+  - name: anki
+    subdomain: "anki"
+    port: 27701
+    internal_port: 8080
+    public: true
+    # Pinned: the jeankhawand image's internal port and on-disk layout have
+    # shifted between major tags (see the "distroless" variants using
+    # /root/.syncserver instead of /anki_data). Bump deliberately.
+    image: "jeankhawand/anki-sync-server:25.07"
 
 overseerr:
   # client_id, plex_machine_id, and users[] live in overseerr_secret.* in the

@@ -13,4 +13,8 @@
   PublishServerOnPlexOnlineKey="1"
   customConnections="https://plex.{{ cloudflare.domain }}:443"
   allowedNetworks="{{ plex_allowed_networks | default('192.168.0.0/255.255.0.0,10.0.0.0/255.0.0.0,100.64.0.0/255.192.0.0,172.16.0.0/255.240.0.0') }}"
+  FSEventLibraryUpdatesEnabled="1"
+  FSEventLibraryPartialScanEnabled="1"
+  ScheduledLibraryUpdatesEnabled="1"
+  ScheduledLibraryUpdateInterval="3600"
 />

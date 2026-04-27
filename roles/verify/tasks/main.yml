@@ -355,16 +355,29 @@
   retries: 5
   delay: 10
 
+# Static-site subdomain handled by roles/notes (not in the services list).
+- name: Final Connectivity Check (note.caleb.trade)
+  uri:
+    url: "https://note.{{ cloudflare.domain }}/"
+    status_code: [200, 530]
+  check_mode: no
+  delegate_to: localhost
+  become: no
+  register: _notes_check
+  until: _notes_check.status in [200, 530]
+  retries: 5
+  delay: 10
+
 - name: Fetch Caddy logs on failure
   command: docker logs caddy --tail 50
   register: _caddy_logs
-  when: _public_check is failed or _subdomain_check is failed
+  when: _public_check is failed or _subdomain_check is failed or _notes_check is failed
   ignore_errors: yes
 
 - name: Show Caddy logs on failure
   debug:
     var: _caddy_logs.stdout_lines
-  when: _public_check is failed or _subdomain_check is failed
+  when: _public_check is failed or _subdomain_check is failed or _notes_check is failed
 
 - name: Report Success
   debug:

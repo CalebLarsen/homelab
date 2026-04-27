@@ -66,6 +66,13 @@
   loop_control:
     label: "{{ item.name }}"
 
+- name: Import unmapped folders into each Servarr library
+  include_tasks: servarr_library_import.yml
+  loop: "{{ servarrs }}"
+  loop_control:
+    loop_var: servarr
+    label: "{{ servarr.name }}"
+
 - name: Get Servarr media management config
   uri:
     url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/config/mediamanagement"
@@ -187,12 +194,14 @@
         DELETE FROM queue_cleaner_configs;
         DELETE FROM notification_configs;
         DELETE FROM seeker_instance_configs;
+        DELETE FROM seeker_configs;
 
         INSERT OR REPLACE INTO arr_configs (id, type, failed_import_max_strikes) VALUES ('0B38A68F-3D7B-4D98-AE96-115DA62D9AF2', 'sonarr', 3);
         INSERT OR REPLACE INTO arr_configs (id, type, failed_import_max_strikes) VALUES ('6096303A-399C-42B8-BE8F-60A02CEC5A51', 'radarr', 3);
 
+        -- failed_import_patterns excludes the .iso/.exe import-error so Malware Blocker handles it; works around Cleanuparr#282 (Queue Cleaner doesn't blocklist on Failed Import).
         INSERT OR REPLACE INTO queue_cleaner_configs (id, cron_expression, downloading_metadata_max_strikes, enabled, failed_import_delete_private, failed_import_ignore_private, failed_import_max_strikes, failed_import_pattern_mode, failed_import_patterns, failed_import_skip_if_not_found_in_client, ignored_downloads, use_advanced_scheduling, process_no_content_id)
-        VALUES ('098AE890-21DD-4A23-9BA8-ED5CE1AB4817', '0 0/5 * ? * * *', 3, 1, 0, 0, 3, 'Exclude', '[]', 1, '[]', 0, 0);
+        VALUES ('098AE890-21DD-4A23-9BA8-ED5CE1AB4817', '0 0/5 * ? * * *', 3, 1, 0, 0, 3, 'Exclude', '["No files found are eligible for import"]', 1, '[]', 0, 0);
 
         INSERT OR REPLACE INTO arr_instances (id, enabled, arr_config_id, name, url, api_key, version) VALUES ('03E5F334-0F61-4DAE-9F3A-E0A315397906', 1, '0B38A68F-3D7B-4D98-AE96-115DA62D9AF2', 'Sonarr', 'http://sonarr:8989', '{{ sonarr_api_key }}', 4.0);
         INSERT OR REPLACE INTO arr_instances (id, enabled, arr_config_id, name, url, api_key, version) VALUES ('13E5F334-0F61-4DAE-9F3A-E0A315397907', 1, '6096303A-399C-42B8-BE8F-60A02CEC5A51', 'Radarr', 'http://radarr:7878', '{{ radarr_api_key }}', 5.0);
@@ -202,10 +211,9 @@
         INSERT OR REPLACE INTO stall_rules (id, reset_strikes_on_progress, minimum_progress, queue_cleaner_config_id, name, enabled, max_strikes, privacy_type, min_completion_percentage, max_completion_percentage, delete_private_torrents_from_client)
         VALUES ('C39A65FD-F9EF-4913-AA20-E558ADF183D0', 1, '', '098AE890-21DD-4A23-9BA8-ED5CE1AB4817', 'Auto-Remove Stalled', 1, 3, 'Both', 0, 100, 0);
 
-        INSERT OR REPLACE INTO notification_configs (id, name, type, is_enabled, on_failed_import_strike, on_stalled_strike, on_slow_strike, on_queue_item_deleted, on_download_cleaned, on_category_changed, created_at, updated_at, on_search_triggered)
-        VALUES ('0B38A68F-3D7B-4D98-AE96-115DA62D9AF2', 'Sonarr Notification', 'sonarr', 0, 0, 0, 0, 0, 0, 0, '2026-04-15 12:00:00', '2026-04-15 12:00:00', 0);
-        INSERT OR REPLACE INTO notification_configs (id, name, type, is_enabled, on_failed_import_strike, on_stalled_strike, on_slow_strike, on_queue_item_deleted, on_download_cleaned, on_category_changed, created_at, updated_at, on_search_triggered)
-        VALUES ('6096303A-399C-42B8-BE8F-60A02CEC5A51', 'Radarr Notification', 'radarr', 0, 0, 0, 0, 0, 0, 0, '2026-04-15 12:00:00', '2026-04-15 12:00:00', 0);
+        -- Global Seeker config. search_enabled=1 lets Seeker queue replacement searches in Sonarr/Radarr after Queue Cleaner removes a download.
+        INSERT OR REPLACE INTO seeker_configs (id, post_release_grace_hours, proactive_search_enabled, search_enabled, search_interval, selection_strategy, use_round_robin)
+        VALUES ('517165FD-B188-4801-BB47-A4CADCEAE29F', 6, 0, 1, 10, 'balancedweighted', 1);
 
         INSERT OR REPLACE INTO seeker_instance_configs (id, arr_instance_id, enabled, skip_tags, last_processed_at, current_cycle_id, total_eligible_items, active_download_limit, min_cycle_time_days)
         VALUES ('03E5F334-0F61-4DAE-9F3A-E0A315397906', '03E5F334-0F61-4DAE-9F3A-E0A315397906', 0, '[]', NULL, '', 0, 0, 7);
@@ -303,6 +311,17 @@
     - "_plex_libraries.status | default(0) == 200"
     - "_plex_libraries.json is defined"
     - "item.name not in (_plex_libraries.json.MediaContainer.Directory | default([]) | map(attribute='title') | list)"
+
+# Plex rewrites Preferences.xml from its in-memory state, so template-only
+# changes to scan prefs get clobbered. The /:/prefs API is the authoritative
+# path; Plex persists whatever we PUT here.
+- name: Enable Plex automatic library scanning
+  uri:
+    url: "http://localhost:32400/:/prefs?FSEventLibraryUpdatesEnabled=1&FSEventLibraryPartialScanEnabled=1&ScheduledLibraryUpdatesEnabled=1&ScheduledLibraryUpdateInterval=3600"
+    method: PUT
+    headers: { X-Plex-Token: "{{ plex_secret.online_token }}" }
+    status_code: [200]
+  when: "_plex_libraries.status | default(0) == 200"
 
 # --- CROSS-SEED PROVISIONING ---
 # cross-seed needs per-indexer torznab URLs from Prowlarr. Enumerate them now

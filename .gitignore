@@ -39,3 +39,5 @@ inventory/group_vars/all/local.yml
 output.log
 decrypted_secrets.yml
 *.decrypted.yml
+
+.claude

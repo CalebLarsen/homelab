@@ -47,3 +47,9 @@
     name: "{{ ansible_user }}"
     groups: docker
     append: yes
+
+- name: Allow primary user to read system journal
+  user:
+    name: "{{ ansible_user }}"
+    groups: adm
+    append: yes

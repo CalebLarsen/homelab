@@ -1,0 +1,6 @@
+---
+notes_repo: "https://github.com/CalebLarsen/scratchpad.git"
+# Pin to a specific commit for reproducible deploys. Bump this SHA to roll
+# the static site forward; Ansible will fetch and check out the new ref.
+notes_version: "2168527261aeaeb83f7bc08b488b0859415d0674"
+notes_dest: "{{ storage.site_root }}/note"

@@ -7,6 +7,13 @@ http://{{ cloudflare.domain }} {
     file_server
 }
 
+# Static site checked out by roles/notes; no backend container, so it is not
+# driven by the services list and is hard-coded here.
+http://note.{{ cloudflare.domain }} {
+    root * /var/www/html/note
+    file_server
+}
+
 http:// {
 {% for service in services if service.public | default(false) %}
     {% if service.subdomain != "@" %}
