@@ -3,7 +3,7 @@
 #
 # Generates:
 #   - services/<name>/docker-compose.yml.j2  (uses shared network partials)
-#   - roles/service-manager/tasks/per_service/<name>.yml  (empty stub)
+#   - roles/service_manager/tasks/per_service/<name>.yml  (empty stub)
 #
 # Then prints the inventory snippets to paste into
 # inventory/group_vars/all/main.yml.
@@ -61,7 +61,7 @@ IMAGE="${IMAGE:-lscr.io/linuxserver/$NAME:latest}"
 
 COMPOSE_DIR="$REPO_ROOT/services/$NAME"
 COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml.j2"
-PER_SERVICE_FILE="$REPO_ROOT/roles/service-manager/tasks/per_service/$NAME.yml"
+PER_SERVICE_FILE="$REPO_ROOT/roles/service_manager/tasks/per_service/$NAME.yml"
 
 # Refuse to overwrite
 if [[ -e "$COMPOSE_FILE" || -e "$PER_SERVICE_FILE" ]]; then

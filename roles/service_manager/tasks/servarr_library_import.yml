@@ -1,0 +1,71 @@
+---
+# Imports unmapped on-disk folders into a Servarr app's library. Idempotent
+# by virtue of /rootfolder's `unmappedFolders` field — folders already tied
+# to a series/movie don't appear, so re-running is a no-op.
+#
+# Called per-servarr via include_tasks with loop_var: servarr.
+
+- name: "Get quality profiles for {{ servarr.name }}"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ servarr.port }}/api/{{ servarr.api_ver }}/qualityprofile"
+    headers: { X-Api-Key: "{{ servarr.api_key }}" }
+  register: service_manager_qp
+
+- name: "Get root folder (with unmapped folders) for {{ servarr.name }}"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ servarr.port }}/api/{{ servarr.api_ver }}/rootfolder"
+    headers: { X-Api-Key: "{{ servarr.api_key }}" }
+  register: service_manager_rf
+
+- name: "Look up unmapped folders for {{ servarr.name }}"
+  ansible.builtin.uri:
+    url: >-
+      http://localhost:{{ servarr.port }}/api/{{ servarr.api_ver }}/{{
+      'series' if servarr.name == 'sonarr' else 'movie' }}/lookup?term={{
+      folder.name | urlencode }}
+    headers: { X-Api-Key: "{{ servarr.api_key }}" }
+  register: service_manager_lookups
+  loop: "{{ service_manager_rf.json[0].unmappedFolders | default([]) }}"
+  loop_control:
+    loop_var: folder
+    label: "{{ folder.name }}"
+
+# Conservative matcher: accept only when the first lookup result's title
+# equals the folder name (case-insensitive, optional trailing "(YYYY)"
+# stripped for Radarr-style folders). Typos and ambiguous folders are
+# skipped so the user can resolve them in the UI.
+- name: "Import matched folders into {{ servarr.name }}"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ servarr.port }}/api/{{ servarr.api_ver }}/{{ 'series' if servarr.name == 'sonarr' else 'movie' }}"
+    method: POST
+    headers: { X-Api-Key: "{{ servarr.api_key }}" }
+    body_format: json
+    body: "{{ _match | combine(_overrides) }}"
+    status_code: [201, 400]
+  loop: "{{ service_manager_lookups.results }}"
+  loop_control:
+    loop_var: _res
+    label: "{{ _res.folder.name }}"
+  when:
+    - _res.json | length > 0
+    - (_res.json[0].title | lower) == (_res.folder.name | regex_replace(' \(\d{4}\)$', '') | lower)
+  vars:
+    _match: "{{ _res.json[0] }}"
+    _overrides:
+      path: "{{ _res.folder.path }}"
+      qualityProfileId: "{{ service_manager_qp.json[0].id }}"
+      monitored: true
+      addOptions: >-
+        {{ {'searchForMissingEpisodes': false, 'monitor': 'existing'}
+           if servarr.name == 'sonarr'
+           else {'searchForMovie': false, 'monitor': 'movieOnly'} }}
+
+- name: "Report skipped folders for {{ servarr.name }}"
+  ansible.builtin.debug:
+    msg: "Skipped '{{ _res.folder.name }}' — no close title match in lookup results. Import by hand in the UI if this is intentional."
+  loop: "{{ service_manager_lookups.results }}"
+  loop_control:
+    loop_var: _res
+    label: "{{ _res.folder.name }}"
+  when:
+    - _res.json | length == 0 or (_res.json[0].title | lower) != (_res.folder.name | regex_replace(' \(\d{4}\)$', '') | lower)

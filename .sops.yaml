@@ -1,3 +1,4 @@
+---
 creation_rules:
   - path_regex: inventory/group_vars/all/secrets.sops.yml$
-    age: "age1wevrc2du2esx4p6td6ghn0rrw8ldg5zxszruxpn98q5ucj9ykqusduyt4m" # Replace with your public age key
+    age: "age1wevrc2du2esx4p6td6ghn0rrw8ldg5zxszruxpn98q5ucj9ykqusduyt4m"

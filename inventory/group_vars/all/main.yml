@@ -14,8 +14,8 @@ vpn_public:
   provider: "mullvad"
   server_cities: "Stockholm"
 
-# Host-level scripts and cron jobs managed by the host-cron role. Scripts
-# live at roles/host-cron/files/<name> in the repo and get deployed to
+# Host-level scripts and cron jobs managed by the host_cron role. Scripts
+# live at roles/host_cron/files/<name> in the repo and get deployed to
 # ~/bin/<name> on the target. Cron entries are installed via Ansible's
 # `cron` module which matches on `name:` — rename with care.
 host_scripts:
@@ -35,85 +35,110 @@ cloudflare:
   tunnel_name: "homelab"
   domain: "caleb.trade"
 
+# Local restic backup. Target is the 7.3TB external (seagate). The
+# passphrase lives in secrets.sops.yml as `restic_password` — without it
+# the repo cannot be opened. See docs/backups.md for restore steps and
+# docs/decisions/0009-local-restic-backup.md for the rationale.
+backup:
+  target: "/media/seagate/restic-backup"
+
 # Master Service List
 # This is the single source of truth for all apps in your homelab. Each entry
-# defines a service's identity, network exposure, and container image. Pin
-# `image:` to a specific tag (e.g. `lscr.io/linuxserver/plex:1.41.6...`) when
-# you want to lock against upstream drift; `:latest` is fine for most things.
-# Service-specific extended config (qbittorrent settings, cleanuparr SQL,
-# overseerr libraries, etc.) lives in dedicated blocks further down.
+# defines a service's identity, network exposure, and container image.
+#
+# Image pinning policy (see docs/decisions/0006-pinned-image-digests.md):
+#   image: "<repo>:<tag>@sha256:<digest>"   — tag for humans, digest for the
+#                                             pull. Digest is what actually
+#                                             resolves; tag is documentation.
+#   image: "<repo>@sha256:<digest>"         — when upstream does not expose a
+#                                             meaningful version label.
+# Never use a floating tag (`:latest`, `:stable`). Bumping = update both the
+# tag and the digest in the same commit. Get the digest with:
+#   docker image inspect <repo>:<tag> --format '{{index .RepoDigests 0}}'
+# NOT `docker inspect <container> --format '{{.Image}}'` — that's the image
+# config ID, which compose can't pull by (see decisions/0006).
 #
 # NOTE: not every public subdomain lives in this list. Static-only sites that
 # do not have a backend container are handled by their own roles and a hard-
 # coded vhost in Caddyfile.j2 — see roles/notes for note.caleb.trade.
 services:
-  - name: caddy  # reverse proxy + static site host
-    image: "caddy:latest"
+  - name: caddy # reverse proxy + static site host
+    image: "caddy:2.9.1@sha256:a863d46cf06a9084f36cbffbe9f4ad046971dca32f79c68129aaf15ad356d6ce"
   - name: gluetun
-    port: 8888  # internal control port; not exposed
-    image: "qmcgaw/gluetun:latest"
+    port: 8888 # internal control port; not exposed
+    # qmcgaw/gluetun does not set a meaningful version label (only `latest`).
+    # To bump: `docker exec gluetun /gluetun-entrypoint version` or check
+    # github.com/qdm12/gluetun releases for the digest you want.
+    image: "qmcgaw/gluetun@sha256:183c74263a07f4c931979140ac99ff4fbc44dcb1ca5b055856ef580b0fafdf1c"
   - name: sonarr
     port: 8989
-    image: "lscr.io/linuxserver/sonarr:latest"
+    image: "lscr.io/linuxserver/sonarr:4.0.14.2939-ls282@sha256:bae1b72ad55cee030a416aaaef1f20eee076e4c1c6d490689904d4609a2cabac"
   - name: radarr
     port: 7878
-    image: "lscr.io/linuxserver/radarr:latest"
+    image: "lscr.io/linuxserver/radarr:5.22.4.9896-ls274@sha256:105b7ffb9e88880a55a3fcd6116542f19af21aae8884a4e276e007d2816bbacb"
   - name: prowlarr
     port: 9696
     use_vpn: true
-    image: "lscr.io/linuxserver/prowlarr:latest"
+    image: "lscr.io/linuxserver/prowlarr:1.35.1.5034-ls117@sha256:dec1e580aad36bccaeb1aba283f01a5263761905c304875a603c9a952ecfda79"
   - name: qbittorrent
     port: 6969
     torrent_port: 8694
     use_vpn: true
-    image: "lscr.io/linuxserver/qbittorrent:latest"
+    image: "lscr.io/linuxserver/qbittorrent:5.1.0-r0-ls393@sha256:eb16ef40b8ba2b6287184a8961d00c50abb99b3782365df70b63671d5c3504d8"
   - name: flaresolverr
     port: 8191
-    image: "ghcr.io/flaresolverr/flaresolverr:latest"
+    image: "ghcr.io/flaresolverr/flaresolverr:v3.3.21@sha256:f104ee51e5124d83cf3be9b37480649355d223f7d8f9e453d0d5ef06c6e3b31b"
   - name: bazarr
     port: 6767
-    image: "lscr.io/linuxserver/bazarr:latest"
+    image: "lscr.io/linuxserver/bazarr:v1.5.2-ls304@sha256:558d6ddf36cd87bac5d4fb2ee8488730c4f65718961ef4ca7073062378aa7641"
   - name: audiobookshelf
     port: 13378
     internal_port: 80
-    image: "ghcr.io/advplyr/audiobookshelf:latest"
+    image: "ghcr.io/advplyr/audiobookshelf:2.30.0@sha256:6fbd7dc95d53c6e168ce69e760b87c334e3b9ba88bf7b8531ed5a116d5d6da03"
   - name: overseerr
     subdomain: "request"
     port: 5055
     public: true
-    image: "lscr.io/linuxserver/overseerr:latest"
+    # Upstream sct/overseerr archived 2026-02-15. See docs/decisions/0007
+    # for the planned migration to Seerr.
+    image: "lscr.io/linuxserver/overseerr:v1.34.0-ls139@sha256:b3f7885d699434e6409ff79298c8a65fdab5ea0fbf58fbb595c18d8a40950ef7"
   - name: plex
     subdomain: "plex"
     port: 32400
     public: true
-    image: "lscr.io/linuxserver/plex:latest"
+    image: "lscr.io/linuxserver/plex:1.41.6.9685-d301f511a-ls264@sha256:53e6a94b2649b3c817757bbdf28d7970bc10e036ec0868b0704f3f51aa612742"
   - name: tautulli
     port: 8181
-    image: "lscr.io/linuxserver/tautulli:latest"
+    image: "lscr.io/linuxserver/tautulli:v2.15.2-ls189@sha256:a9b699b5cdbc3a79c1d05a250daf1f9f9cba76dc8628d6caeffdbc99b42d8625"
   - name: kometa
-    port: 0  # no web UI; run-once / scheduled
-    image: "kometateam/kometa:latest"
+    port: 0 # no web UI; run-once / scheduled
+    # kometateam/kometa does not set a version label. To identify a digest's
+    # release, see kometa.wiki release notes or github.com/Kometa-Team/Kometa.
+    image: "kometateam/kometa@sha256:b265e952fcc3931ac378601faf9e6e0d90bee104fc70d9002f59c8678bf00b87"
   - name: recyclarr
-    port: 0  # one-shot container
-    image: "ghcr.io/recyclarr/recyclarr:latest"
+    port: 0 # one-shot container
+    image: "ghcr.io/recyclarr/recyclarr:8.3.2@sha256:55afe316d3e4e4e3b9120cef7c79436b1b5311f6a18d4ef4b7653e720499c90a"
   - name: cleanuparr
     port: 11011
-    # Pinned: schema-coupled SQL injection in api_wiring.yml needs to break
-    # loudly on upgrade. Run `docker inspect cleanuparr | grep Image` to find
-    # the currently-running version before bumping this tag.
-    image: "ghcr.io/cleanuparr/cleanuparr:2.9.8"
-  - name: cross-seed  # finds .torrent files for existing data via Prowlarr
+    # Schema-coupled SQL injection in api_wiring.yml needs to break loudly on
+    # upgrade — see docs/decisions/0005-cleanuparr-pinned-tag.md. Read live
+    # `.schema` of cleanuparr.db and users.db before bumping this digest.
+    image: "ghcr.io/cleanuparr/cleanuparr:2.9.8@sha256:563b01707cb4509731793ce03bfc26f08640f4194908cc1fa6782e75f59dc405"
+  - name: cross-seed # finds .torrent files for existing data via Prowlarr
     port: 2468
-    image: "ghcr.io/cross-seed/cross-seed:latest"
+    # OCI label reports `version-6.13.6`; the upstream tag scheme uses this
+    # exact prefix, so the tag below should resolve. If it does not, fall
+    # back to digest-only (drop `:version-6.13.6` from the line).
+    image: "ghcr.io/cross-seed/cross-seed:version-6.13.6@sha256:e2bf5b593e4e7d699e6242423ad7966190cd52ba8eefafdfdbb0cb5b0b609b96"
   - name: anki
     subdomain: "anki"
     port: 27701
     internal_port: 8080
     public: true
-    # Pinned: the jeankhawand image's internal port and on-disk layout have
-    # shifted between major tags (see the "distroless" variants using
-    # /root/.syncserver instead of /anki_data). Bump deliberately.
-    image: "jeankhawand/anki-sync-server:25.07"
+    # The jeankhawand image's internal port and on-disk layout have shifted
+    # between major tags (the "distroless" variants use /root/.syncserver
+    # instead of /anki_data). Bump deliberately.
+    image: "jeankhawand/anki-sync-server:25.07@sha256:bac64aef13fbfe3e2e3ce8c25da732763bcdffe856225e366d4cda54eb829ef9"
 
 overseerr:
   # client_id, plex_machine_id, and users[] live in overseerr_secret.* in the
@@ -201,118 +226,18 @@ qbittorrent:
     - "*sample.avi"
     - "*sample.mkv"
     - "*sample.mp4"
-  trackers:
-    - "udp://tracker.opentrackr.org:1337/announce"
-    - "udp://open.demonoid.ch:6969/announce"
-    - "udp://open.demonii.com:1337/announce"
-    - "http://tracker.opentrackr.org:1337/announce"
-    - "udp://tracker.torrent.eu.org:451/announce"
-    - "udp://open.stealth.si:80/announce"
-    - "udp://explodie.org:6969/announce"
-    - "udp://tracker1.myporn.club:9337/announce"
-    - "udp://tracker.qu.ax:6969/announce"
-    - "udp://tracker.dler.org:6969/announce"
-    - "udp://tracker.0x7c0.com:6969/announce"
-    - "udp://tracker-udp.gbitt.info:80/announce"
-    - "udp://run.publictracker.xyz:6969/announce"
-    - "udp://retracker01-msk-virt.corbina.net:80/announce"
-    - "udp://p4p.arenabg.com:1337/announce"
-    - "udp://opentracker.io:6969/announce"
-    - "udp://open.free-tracker.ga:6969/announce"
-    - "udp://open.dstud.io:6969/announce"
-    - "udp://6ahddutb1ucc3cp.ru:6969/announce"
-    - "https://tracker.yemekyedim.com:443/announce"
-    - "https://tr.zukizuki.org:443/announce"
-    - "https://torrent.tracker.durukanbal.com:443/announce"
-    - "https://bt.bontal.net:443/announce"
-    - "http://www.genesis-sp.org:2710/announce"
-    - "http://tracker2.dler.org:80/announce"
-    - "http://tracker.tritan.gg:8080/announce"
-    - "http://tracker.sbsub.com:2710/announce"
-    - "http://tracker.renfei.net:8080/announce"
-    - "http://tracker.qu.ax:6969/announce"
-    - "http://tracker.mywaifu.best:6969/announce"
-    - "http://tracker.moxing.party:6969/announce"
-    - "http://tracker.lintk.me:2710/announce"
-    - "http://tracker.dmcomic.org:2710/announce"
-    - "http://tracker.dler.org:6969/announce"
-    - "http://tracker.dhitechnical.com:6969/announce"
-    - "http://tracker.darkness.services:6969/announce"
-    - "http://tracker.cutie.dating:80/announce"
-    - "http://tracker.bz:80/announce"
-    - "http://tr.kxmp.cf:80/announce"
-    - "http://torrent.hificode.in:6969/announce"
-    - "http://share.hkg-fansub.info:80/announce.php"
-    - "http://retracker.spark-rostov.ru:80/announce"
-    - "http://p4p.arenabg.com:1337/announce"
-    - "http://open.acgtracker.com:1096/announce"
-    - "http://extracker.dahrkael.net:6969/announce"
-    - "http://bvarf.tracker.sh:2086/announce"
-    - "http://buny.uk:6969/announce"
-    - "http://bt1.xxxxbt.cc:6969/announce"
-    - "http://bt.poletracker.org:2710/announce"
-    - "http://0d.kebhana.mx:443/announce"
-    - "http://0123456789nonexistent.com:80/announce"
-    - "udp://yuki.bt.bontal.net:6969/announce"
-    - "udp://udp.tracker.projectk.org:23333/announce"
-    - "udp://tracker2.dler.org:80/announce"
-    - "udp://tracker.zupix.online:6969/announce"
-    - "udp://tracker.tvunderground.org.ru:3218/announce"
-    - "udp://tracker.tryhackx.org:6969/announce"
-    - "udp://tracker.torrust-demo.com:6969/announce"
-    - "udp://tracker.therarbg.to:6969/announce"
-    - "udp://tracker.t-1.org:6969/announce"
-    - "udp://tracker.plx.im:6969/announce"
-    - "udp://tracker.gmi.gd:6969/announce"
-    - "udp://tracker.fnix.net:6969/announce"
-    - "udp://tracker.flatuslifir.is:6969/announce"
-    - "udp://tracker.filemail.com:6969/announce"
-    - "udp://tracker.ducks.party:1984/announce"
-    - "udp://tracker.cloudbase.store:1333/announce"
-    - "udp://tracker.1h.is:1337/announce"
-    - "udp://tr4ck3r.duckdns.org:6969/announce"
-    - "udp://torrentclub.online:54123/announce"
-    - "udp://t.overflow.biz:6969/announce"
-    - "udp://retracker.lanta.me:2710/announce"
-    - "udp://martin-gebhardt.eu:25/announce"
-    - "udp://ipv4announce.sktorrent.eu:6969/announce"
-    - "udp://d40969.acod.regrucolo.ru:6969/announce"
-    - "udp://concen.org:6969/announce"
-    - "udp://bt.rer.lol:6969/announce"
-    - "udp://bittorrent-tracker.e-n-c-r-y-p-t.net:1337/announce"
-    - "udp://bandito.byterunner.io:6969/announce"
-    - "https://tracker.zhuqiy.com:443/announce"
-    - "https://tracker.uraniumhexafluori.de:443/announce"
-    - "https://tracker.pmman.tech:443/announce"
-    - "https://tracker.moeblog.cn:443/announce"
-    - "https://tracker.leechshield.link:443/announce"
-    - "https://tracker.ghostchu-services.top:443/announce"
-    - "https://tracker.alaskantf.com:443/announce"
-    - "https://tr.nyacat.pw:443/announce"
-    - "https://t.213891.xyz:443/announce"
-    - "https://shahidrazi.online:443/announce"
-    - "http://www.torrentsnipe.info:2701/announce"
-    - "http://tracker810.xyz:11450/announce"
-    - "http://tracker.zhuqiy.com:80/announce"
-    - "http://tracker.xiaoduola.xyz:6969/announce"
-    - "http://tracker.waaa.moe:6969/announce"
-    - "http://tracker.vanitycore.co:6969/announce"
-    - "http://tracker.ipv6tracker.org:80/announce"
-    - "http://tracker.ghostchu-services.top:80/announce"
-    - "http://tracker.corpscorp.online:80/announce"
-    - "http://tracker.bt-hash.com:80/announce"
-    - "http://tracker.bittor.pw:1337/announce"
-    - "http://tracker.23794.top:6969/announce"
-    - "http://tr.nyacat.pw:80/announce"
-    - "http://t.overflow.biz:6969/announce"
-    - "http://shubt.net:2710/announce"
-    - "http://servandroidkino.ru:80/announce"
-    - "http://seeders-paradise.org:80/announce"
-    - "http://open.trackerlist.xyz:80/announce"
-    - "http://home.yxgz.club:6969/announce"
-    - "http://bt.rer.lol:2710/announce"
-    - "http://aboutbeautifulgallopinghorsesinthegreenpasture.online:80/announce"
-    - "http://1337.abcvg.info:80/announce"
+  # Tracker list pulled at deploy time from ngosang/trackerslist (pinned by
+  # commit, fetched once per run from the Ansible controller). Bump by
+  # picking a newer commit from
+  # https://github.com/ngosang/trackerslist/commits/master and updating
+  # `repo_commit` below. Switch `file` to `trackers_all.txt` for the full
+  # ~85-entry list instead of the curated `_best` subset.
+  trackers_source:
+    repo_commit: "50a204edfeb4f5f904a28e20b650966241203edb" # 2026-04-26
+    file: "trackers_best.txt"
+  # See roles/service_manager/tasks/per_service/qbittorrent.yml for the
+  # fetch + parse step that produces the service_manager_qbittorrent_trackers fact consumed
+  # by qBittorrent.conf.j2.
 
 prowlarr_indexers:
   - 1337x
@@ -338,10 +263,10 @@ cleanuparr:
 storage:
   site_root: "/home/caleb/www"
   disks:
-      - name: shield
-        uuid: d4e84780-c89a-4b2f-9de1-27b140ba61d9
-      - name: seagate
-        uuid: c4a1a3dd-22d8-4cde-95f4-f7cf82a6735e
+    - name: shield
+      uuid: d4e84780-c89a-4b2f-9de1-27b140ba61d9
+    - name: seagate
+      uuid: c4a1a3dd-22d8-4cde-95f4-f7cf82a6735e
   pool_path: "/home/caleb/data"
   nvme_path: "/home/caleb/nvme"
   # Subdirectories pre-created on EVERY mergerfs branch so hardlinks resolve.

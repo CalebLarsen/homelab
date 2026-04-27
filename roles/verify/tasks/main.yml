@@ -1,159 +1,232 @@
 ---
+# --- ADR 0006: every service is pinned to a digest, no floating tags ---
+- name: Verify all service images are pinned to a digest
+  ansible.builtin.assert:
+    that: "'@sha256:' in item.image"
+    fail_msg: "Service '{{ item.name }}' uses an unpinned image: {{ item.image }} — see docs/decisions/0006-pinned-image-digests.md"
+  loop: "{{ services }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Query /proc/mounts directly via the live kernel — ansible_facts.mounts is
+# captured at play start and does not refresh when the mergerfs role mounts
+# the pool later in the same run. Shell with pipefail handles the chained
+# greps safely.
 - name: Verify host storage pool
-  shell: "mount | grep {{ storage.pool_path }} | grep fuse.mergerfs"
-  check_mode: no
-  register: _pool_check
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && mount | grep {{ storage.pool_path }} | grep fuse.mergerfs"
+    executable: /bin/bash
+  check_mode: false
+  register: verify_pool_check
   changed_when: false
-  failed_when: _pool_check.rc != 0
+  failed_when: verify_pool_check.rc != 0
+
+# --- ADR 0001: mergerfs must have cache.files set or mmap users (qBittorrent,
+# anything sqlite-on-pool) fail with ENODEV. /proc/mounts does not show
+# mergerfs runtime opts; query the ps args of the mergerfs daemon itself.
+- name: Read live mergerfs runtime options
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && ps -ww -o args= -C mergerfs | head -1"
+    executable: /bin/bash
+  check_mode: false
+  register: verify_mergerfs_args
+  changed_when: false
+  failed_when: verify_mergerfs_args.rc != 0
+
+- name: Verify mergerfs cache.files is enabled (mmap support)
+  ansible.builtin.assert:
+    that:
+      - >-
+        'cache.files=partial' in verify_mergerfs_args.stdout
+        or 'cache.files=full' in verify_mergerfs_args.stdout
+        or 'cache.files=auto-full' in verify_mergerfs_args.stdout
+    fail_msg: |
+      mergerfs is mounted without `cache.files=partial` (or stronger).
+      mmap() against the pool will fail with ENODEV — qBittorrent and any
+      sqlite-on-pool service will break. See decisions/0001.
+      Live mergerfs args: {{ verify_mergerfs_args.stdout }}
 
 - name: Verify Cloudflare Tunnel service
-  systemd:
+  ansible.builtin.systemd:
     name: cloudflared
     state: started
-  check_mode: no
-  register: _tunnel_status
-  failed_when: _tunnel_status.status.ActiveState != 'active'
+  check_mode: false
+  register: verify_tunnel_status
+  failed_when: verify_tunnel_status.status.ActiveState != 'active'
 
 - name: Verify Docker service health
-  shell: "docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' {{ item.name }}"
+  ansible.builtin.command: "docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' {{ item.name }}"
   loop: "{{ services | rejectattr('name', 'equalto', 'recyclarr') | list }}"
-  check_mode: no
-  register: _container_status
-  failed_when: "'running' not in _container_status.stdout"
+  check_mode: false
+  register: verify_container_status
+  failed_when: "'running' not in verify_container_status.stdout"
   changed_when: false
 
 - name: Validate Caddy configuration
-  command: docker exec caddy caddy validate --config /etc/caddy/Caddyfile
-  register: _caddy_validation
+  ansible.builtin.command: docker exec caddy caddy validate --config /etc/caddy/Caddyfile
+  register: verify_caddy_validation
   changed_when: false
-  failed_when: _caddy_validation.rc != 0
+  failed_when: verify_caddy_validation.rc != 0
   when: "'caddy' in services | map(attribute='name') | list"
 
 - name: Verify Internal DNS Resolution (Sonarr -> Gluetun)
-  command: docker exec sonarr getent hosts gluetun
-  register: _dns_check
+  ansible.builtin.command: docker exec sonarr getent hosts gluetun
+  register: verify_dns_check
   changed_when: false
-  failed_when: _dns_check.rc != 0
+  failed_when: verify_dns_check.rc != 0
   when: "'sonarr' in services | map(attribute='name') | list and 'gluetun' in services | map(attribute='name') | list"
 
 - name: Get Host Public IP
-  uri:
+  ansible.builtin.uri:
     url: "https://ifconfig.me/ip"
-    return_content: yes
-  register: _host_ip
-  check_mode: no
+    return_content: true
+  register: verify_host_ip
+  check_mode: false
   retries: 3
   delay: 5
 
 - name: VPN Geolocation Verification
+  when: "'gluetun' in services | map(attribute='name') | list"
+
   block:
     - name: Verify VPN Geolocation (Not Home ISP)
-      shell: docker exec gluetun wget -qO- https://ipinfo.io/json
-      register: _vpn_geo_raw
+      ansible.builtin.command: docker exec gluetun wget -qO- https://ipinfo.io/json
+      register: verify_vpn_geo_raw
       changed_when: false
       retries: 3
       delay: 5
 
     - name: Parse VPN Geolocation
-      set_fact:
-        vpn_geo: "{{ _vpn_geo_raw.stdout | from_json }}"
+      ansible.builtin.set_fact:
+        verify_vpn_geo: "{{ verify_vpn_geo_raw.stdout | from_json }}"
 
     - name: Fail if VPN IP matches Host IP
-      fail:
-        msg: "VPN Leak Detected! Container IP matches Host: {{ vpn_geo.ip }}"
+      ansible.builtin.fail:
+        msg: "VPN Leak Detected! Container IP matches Host: {{ verify_vpn_geo.ip }}"
       when:
-        - "vpn_geo is defined"
-        - "vpn_geo.ip == _host_ip.content | trim"
-  when: "'gluetun' in services | map(attribute='name') | list"
-
+        - "verify_vpn_geo is defined"
+        - "verify_vpn_geo.ip == verify_host_ip.content | trim"
 - name: Verify MergerFS is writable
-  file:
+  ansible.builtin.file:
     path: "{{ storage.pool_path }}/.ansible_verify_write"
     state: touch
-  register: _mfs_write
-  failed_when: _mfs_write.failed
+    mode: "0644"
+  register: verify_mfs_write
+  failed_when: verify_mfs_write.failed
 
 - name: Cleanup MergerFS test file
-  file:
+  ansible.builtin.file:
     path: "{{ storage.pool_path }}/.ansible_verify_write"
     state: absent
   changed_when: false
 
 - name: Verify Sonarr root folder exists in container
-  command: docker exec sonarr ls -la /data/media/tv
-  register: _sonarr_folder
+  ansible.builtin.command: docker exec sonarr ls -la /data/media/tv
+  register: verify_sonarr_folder
   changed_when: false
-  failed_when: _sonarr_folder.rc != 0
+  failed_when: verify_sonarr_folder.rc != 0
   when: "'sonarr' in services | map(attribute='name') | list"
 
 - name: Verify Radarr root folder exists in container
-  command: docker exec radarr ls -la /data/media/movies
-  register: _radarr_folder
+  ansible.builtin.command: docker exec radarr ls -la /data/media/movies
+  register: verify_radarr_folder
   changed_when: false
-  failed_when: _radarr_folder.rc != 0
+  failed_when: verify_radarr_folder.rc != 0
   when: "'radarr' in services | map(attribute='name') | list"
 
 # --- PIPELINE STEP 0: STORAGE "WRITE-THROUGH" ---
 
 - name: Perform Storage Write-Through Test (Sonarr)
-  command: docker exec sonarr touch /data/media/tv/.ansible_verify_write
-  register: _write_test
+  ansible.builtin.command: docker exec sonarr touch /data/media/tv/.ansible_verify_write
+  register: verify_write_test
+  changed_when: false  # the artifact is removed two tasks later; treated as a probe
   when: "'sonarr' in services | map(attribute='name') | list"
 
 - name: Verify file exists on Host MergerFS path
-  stat:
+  ansible.builtin.stat:
     path: "{{ storage.pool_path }}/media/tv/.ansible_verify_write"
-  register: _host_stat
-  failed_when: not _host_stat.stat.exists
+  register: verify_host_stat
+  failed_when: not verify_host_stat.stat.exists
   when: "'sonarr' in services | map(attribute='name') | list"
 
 - name: Cleanup Storage Write-Through Artifact
-  command: docker exec sonarr rm /data/media/tv/.ansible_verify_write
+  ansible.builtin.command: docker exec sonarr rm /data/media/tv/.ansible_verify_write
   changed_when: false
   when: "'sonarr' in services | map(attribute='name') | list"
+
+# --- ADR 0002: hardlinks across /data/torrents <-> /data/media must succeed
+# inside a hardlinking service. Two separate bind mounts of sibling host
+# paths look like different filesystems to link() and produce EXDEV.
+- name: Hardlink test (torrents -> media) inside sonarr
+  ansible.builtin.shell: |
+    set -e
+    docker exec sonarr sh -c '
+      src=/data/torrents/.ansible_verify_link.src
+      dst=/data/media/tv/.ansible_verify_link.dst
+      echo verify > "$src"
+      ln "$src" "$dst"
+      rm -f "$src" "$dst"
+    '
+  register: verify_hardlink_test
+  changed_when: false
+  failed_when: verify_hardlink_test.rc != 0
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+- name: Report hardlink failure (EXDEV likely)
+  ansible.builtin.fail:
+    msg: |
+      Hardlink across /data/torrents and /data/media/tv failed inside the
+      sonarr container — see decisions/0002. Either /data is split across
+      two bind mounts (look at the compose template), or mergerfs put the
+      destination's parent dir on a different branch (storage.pool_subdirs
+      should pre-create them on every branch).
+      stderr: {{ verify_hardlink_test.stderr | default('') }}
+  when:
+    - "'sonarr' in services | map(attribute='name') | list"
+    - verify_hardlink_test is failed
 
 # --- PIPELINE STEP 1: PROWLARR INDEXERS ---
 
 - name: Verify Prowlarr has indexers configured
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:9696/api/v1/indexer"
     method: GET
     headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
-  register: _prowlarr_indexers
-  failed_when: "_prowlarr_indexers.json | length == 0"
+  register: verify_prowlarr_indexers
+  failed_when: "verify_prowlarr_indexers.json | length == 0"
   when: "'prowlarr' in services | map(attribute='name') | list"
   retries: 3
   delay: 5
 
 - name: Perform Synthetic Indexer Search (Prowlarr)
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:9696/api/v1/search?query=Big%20Buck%20Bunny"
     method: GET
     headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
-  register: _prowlarr_search
-  failed_when: _prowlarr_search.json | length == 0
+  register: verify_prowlarr_search
+  failed_when: verify_prowlarr_search.json | length == 0
   retries: 3
   delay: 10
   when: "'prowlarr' in services | map(attribute='name') | list"
 
 - name: Verify Prowlarr indexers are synced to Sonarr
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:8989/api/v3/indexer"
     method: GET
     headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
-  register: _sonarr_indexers
-  until: "(_sonarr_indexers.json | length > 0)"
+  register: verify_sonarr_indexers
+  until: "(verify_sonarr_indexers.json | length > 0)"
   when: "'sonarr' in services | map(attribute='name') | list"
   retries: 3
   delay: 5
 
 - name: Verify Prowlarr indexers are synced to Radarr
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:7878/api/v3/indexer"
     method: GET
     headers: { X-Api-Key: "{{ api_keys.radarr }}" }
-  register: _radarr_indexers
-  until: "(_radarr_indexers.json | length > 0)"
+  register: verify_radarr_indexers
+  until: "(verify_radarr_indexers.json | length > 0)"
   when: "'radarr' in services | map(attribute='name') | list"
   retries: 3
   delay: 5
@@ -161,7 +234,7 @@
 # --- PIPELINE STEP 2: DOWNLOAD CLIENT CONNECTIVITY ---
 
 - name: Test Sonarr Download Client Connection via API
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:8989/api/v3/downloadclient/test"
     method: POST
     headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
@@ -176,35 +249,35 @@
         - { name: "port", value: 6969 }
         - { name: "username", value: "admin" }
         - { name: "password", value: "{{ admin_password }}" }
-  register: _sonarr_test
-  until: "_sonarr_test.status == 200 and ('json' not in _sonarr_test or _sonarr_test.json == {} or _sonarr_test.json | length == 0)"
+  register: verify_sonarr_test
+  until: "verify_sonarr_test.status == 200 and ('json' not in verify_sonarr_test or verify_sonarr_test.json == {} or verify_sonarr_test.json | length == 0)"
   retries: 5
   delay: 5
   no_log: true
   when: "'sonarr' in services | map(attribute='name') | list and 'qbittorrent' in services | map(attribute='name') | list"
 
 - name: Verify Sonarr download client status
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:8989/api/v3/downloadclient"
     headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
-  register: _sonarr_dc
+  register: verify_sonarr_dc
   failed_when: >
-    _sonarr_dc.json | selectattr('name', 'equalto', 'qBittorrent') | 
+    verify_sonarr_dc.json | selectattr('name', 'equalto', 'qBittorrent') |
     selectattr('enable', 'equalto', true) | list | length == 0
   when: "'sonarr' in services | map(attribute='name') | list"
 
 - name: Verify Radarr download client status
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:7878/api/v3/downloadclient"
     headers: { X-Api-Key: "{{ api_keys.radarr }}" }
-  register: _radarr_dc_v
+  register: verify_radarr_dc_v
   failed_when: >
-    _radarr_dc_v.json | selectattr('name', 'equalto', 'qBittorrent') | 
+    verify_radarr_dc_v.json | selectattr('name', 'equalto', 'qBittorrent') |
     selectattr('enable', 'equalto', true) | list | length == 0
   when: "'radarr' in services | map(attribute='name') | list"
 
 - name: Login to qBittorrent to get session
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:6969/api/v2/auth/login"
     method: POST
     body_format: form-urlencoded
@@ -212,176 +285,215 @@
       username: admin
       password: "{{ admin_password }}"
     status_code: 200
-  register: _qbittorrent_login
+  register: verify_qbittorrent_login
   no_log: true
   when: "'qbittorrent' in services | map(attribute='name') | list"
 
 - name: Verify qBittorrent API is reachable
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:6969/api/v2/app/version"
     method: GET
     headers:
-      Cookie: "{{ _qbittorrent_login.set_cookie }}"
-  register: _qbittorrent_api
-  failed_when: _qbittorrent_api.status != 200
+      Cookie: "{{ verify_qbittorrent_login.set_cookie }}"
+  register: verify_qbittorrent_api
+  failed_when: verify_qbittorrent_api.status != 200
   when: "'qbittorrent' in services | map(attribute='name') | list"
 
 - name: Check Overseerr Connectivity
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:5055/api/v1/status"
     method: GET
-  register: _overseerr_conn
-  failed_when: _overseerr_conn.status != 200
+  register: verify_overseerr_conn
+  failed_when: verify_overseerr_conn.status != 200
   when: "'overseerr' in services | map(attribute='name') | list"
 
 # --- PIPELINE STEP 3: OVERSEERR REQUEST FLOW ---
 
 - name: Verify Overseerr Connectivity to Plex
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:5055/api/v1/settings/plex"
     headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
-  register: _overseerr_plex
+  register: verify_overseerr_plex
   # Accept 403 (Overseerr not yet initialized); fail on other non-200 statuses
   # or on a 200 response missing the expected `name` field.
   failed_when: >-
-    _overseerr_plex.status not in [200, 403] or
-    (_overseerr_plex.status == 200 and 'name' not in (_overseerr_plex.json | default({})))
+    verify_overseerr_plex.status not in [200, 403] or
+    (verify_overseerr_plex.status == 200 and 'name' not in (verify_overseerr_plex.json | default({})))
   when:
     - "'overseerr' in services | map(attribute='name') | list"
-    - "_overseerr_conn.status == 200"
+    - "verify_overseerr_conn.status == 200"
 
 - name: Verify Overseerr Connectivity to Sonarr
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:5055/api/v1/settings/sonarr"
     headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
-  register: _overseerr_sonarr
+  register: verify_overseerr_sonarr
   # Accept 403 (uninitialized); otherwise require a configured default instance.
   failed_when: >-
-    _overseerr_sonarr.status not in [200, 403] or
-    (_overseerr_sonarr.status == 200 and
-      (_overseerr_sonarr.json | length == 0 or
-       not _overseerr_sonarr.json | selectattr('isDefault', 'equalto', true) | list))
+    verify_overseerr_sonarr.status not in [200, 403] or
+    (verify_overseerr_sonarr.status == 200 and
+      (verify_overseerr_sonarr.json | length == 0 or
+       not verify_overseerr_sonarr.json | selectattr('isDefault', 'equalto', true) | list))
   when:
     - "'overseerr' in services | map(attribute='name') | list"
-    - "_overseerr_conn.status == 200"
+    - "verify_overseerr_conn.status == 200"
 
 - name: Verify Overseerr Connectivity to Radarr
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:5055/api/v1/settings/radarr"
     headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
-  register: _overseerr_radarr
+  register: verify_overseerr_radarr
   # Accept 403 (uninitialized); otherwise require a configured default instance.
   failed_when: >-
-    _overseerr_radarr.status not in [200, 403] or
-    (_overseerr_radarr.status == 200 and
-      (_overseerr_radarr.json | length == 0 or
-       not _overseerr_radarr.json | selectattr('isDefault', 'equalto', true) | list))
+    verify_overseerr_radarr.status not in [200, 403] or
+    (verify_overseerr_radarr.status == 200 and
+      (verify_overseerr_radarr.json | length == 0 or
+       not verify_overseerr_radarr.json | selectattr('isDefault', 'equalto', true) | list))
   when:
     - "'overseerr' in services | map(attribute='name') | list"
-    - "_overseerr_conn.status == 200"
+    - "verify_overseerr_conn.status == 200"
 
 # --- PIPELINE STEP 4: PLEX MEDIA VISIBILITY ---
 
 - name: Verify Plex libraries are configured correctly
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:32400/library/sections"
     headers: { X-Plex-Token: "{{ plex_secret.online_token }}" }
-    return_content: yes
-  register: _plex_libs
+    return_content: true
+  register: verify_plex_libs
   failed_when: >
     'plex' in services | map(attribute='name') | list and
-    ('TV Shows' not in _plex_libs.content or 'Movies' not in _plex_libs.content)
-  check_mode: no
+    ('TV Shows' not in verify_plex_libs.content or 'Movies' not in verify_plex_libs.content)
+  check_mode: false
 
 # --- MAINTENANCE & BACKGROUND ---
 
 - name: Check Recyclarr completion status
-  shell: "docker logs recyclarr 2>&1"
-  register: _recyclarr_logs
+  ansible.builtin.shell: "docker logs recyclarr 2>&1"
+  register: verify_recyclarr_logs
   changed_when: false
   failed_when: >-
-    'Exception' in _recyclarr_logs.stdout or
-    ('Error' in _recyclarr_logs.stdout and 'warning' not in _recyclarr_logs.stdout.lower())
+    'Exception' in verify_recyclarr_logs.stdout or
+    ('Error' in verify_recyclarr_logs.stdout and 'warning' not in verify_recyclarr_logs.stdout.lower())
   # Recyclarr runs once and exits; network hiccups during sync shouldn't fail
   # the deploy — the next scheduled run will retry.
   ignore_errors: true
   when: "'recyclarr' in services | map(attribute='name') | list"
 
 - name: Verify Cleanuparr Health
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:11011/api/health"
     status_code: 200
     headers:
       X-Api-Key: "{{ cleanuparr_secret.api_key }}"
-  register: _cleanuparr_health
+  register: verify_cleanuparr_health
   retries: 5
   delay: 5
   when: "'cleanuparr' in services | map(attribute='name') | list"
 
 - name: Verify Cleanuparr Queue Cleaner Config Endpoint
-  uri:
+  ansible.builtin.uri:
     url: "http://localhost:11011/api/configuration/queue_cleaner"
     status_code: 200
     headers:
       X-Api-Key: "{{ cleanuparr_secret.api_key }}"
-  register: _queue_cleaner_api
+  register: verify_queue_cleaner_api
   when: "'cleanuparr' in services | map(attribute='name') | list"
-  failed_when: _queue_cleaner_api.status != 200
+  failed_when: verify_queue_cleaner_api.status != 200
+
+# --- ADR 0005: the SQL provisioning in api_wiring.yml writes to specific
+# tables in cleanuparr.db / users.db. If the schema drifts in an upgrade,
+# those INSERTs will fail or silently target the wrong columns. Assert the
+# tables we touch still exist.
+- name: Verify Cleanuparr DB schema (api_wiring.yml coupling)
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      sqlite3 -bail "{{ config_root }}/cleanuparr/cleanuparr.db" \
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN
+          ('arr_configs','arr_instances','download_clients',
+           'queue_cleaner_configs','stall_rules',
+           'seeker_configs','seeker_instance_configs');" \
+        | sort | uniq -c
+    executable: /bin/bash
+  register: verify_cleanuparr_tables
+  changed_when: false
+  failed_when: >-
+    verify_cleanuparr_tables.rc != 0 or
+    verify_cleanuparr_tables.stdout_lines | length != 7
+  when: "'cleanuparr' in services | map(attribute='name') | list"
+
+- name: Verify Cleanuparr users table exists
+  ansible.builtin.shell: |
+    sqlite3 -bail "{{ config_root }}/cleanuparr/users.db" \
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='users';"
+  register: verify_cleanuparr_users_table
+  changed_when: false
+  failed_when: verify_cleanuparr_users_table.stdout | trim != 'users'
+  when: "'cleanuparr' in services | map(attribute='name') | list"
 
 # --- PUBLIC ACCESS ---
 
 - name: Final Connectivity Check (Root)
-  uri:
+  ansible.builtin.uri:
     url: "https://{{ cloudflare.domain }}/"
     status_code: [200, 404, 403, 530] # Static site might be empty or warming up
-  check_mode: no
+  check_mode: false
   delegate_to: localhost
-  become: no
-  register: _public_check
-  until: _public_check.status in [200, 404, 403, 530]
+  become: false
+  register: verify_public_check
+  until: verify_public_check.status in [200, 404, 403, 530]
   retries: 5
   delay: 10
 
 - name: Final Connectivity Check (Subdomains)
-  uri:
+  ansible.builtin.uri:
     url: "https://{{ item.subdomain }}.{{ cloudflare.domain }}/"
     status_code: [200, 404, 307, 401, 530] # 307 for Overseerr /setup, 401 for Plex, 530 for warmup
-  check_mode: no
+  check_mode: false
   loop: "{{ services | selectattr('public', 'defined') | selectattr('public', 'equalto', true) | rejectattr('subdomain', 'equalto', '@') | list }}"
   delegate_to: localhost
-  become: no
-  register: _subdomain_check
-  until: _subdomain_check.status in [200, 404, 307, 401, 530]
+  become: false
+  register: verify_subdomain_check
+  until: verify_subdomain_check.status in [200, 404, 307, 401, 530]
   retries: 5
   delay: 10
 
 # Static-site subdomain handled by roles/notes (not in the services list).
 - name: Final Connectivity Check (note.caleb.trade)
-  uri:
+  ansible.builtin.uri:
     url: "https://note.{{ cloudflare.domain }}/"
     status_code: [200, 530]
-  check_mode: no
+  check_mode: false
   delegate_to: localhost
-  become: no
-  register: _notes_check
-  until: _notes_check.status in [200, 530]
+  become: false
+  register: verify_notes_check
+  until: verify_notes_check.status in [200, 530]
   retries: 5
   delay: 10
 
 - name: Fetch Caddy logs on failure
-  command: docker logs caddy --tail 50
-  register: _caddy_logs
-  when: _public_check is failed or _subdomain_check is failed or _notes_check is failed
-  ignore_errors: yes
+  ansible.builtin.command: docker logs caddy --tail 50
+  register: verify_caddy_logs
+  changed_when: false
+  failed_when: false  # diagnostic only; never break the verify run on a missing log
+  when: >-
+    verify_public_check is failed
+    or verify_subdomain_check is failed
+    or verify_notes_check is failed
 
 - name: Show Caddy logs on failure
-  debug:
-    var: _caddy_logs.stdout_lines
-  when: _public_check is failed or _subdomain_check is failed or _notes_check is failed
+  ansible.builtin.debug:
+    var: verify_caddy_logs.stdout_lines
+  when: >-
+    verify_public_check is failed
+    or verify_subdomain_check is failed
+    or verify_notes_check is failed
 
 - name: Report Success
-  debug:
-    msg: "--------------------------------------------------
-          ALL SYSTEMS GREEN! 
-          Your homelab is now fully operational.
-          --------------------------------------------------"
+  ansible.builtin.debug:
+    msg: |
+      --------------------------------------------------
+      ALL SYSTEMS GREEN!
+      Your homelab is now fully operational.
+      --------------------------------------------------

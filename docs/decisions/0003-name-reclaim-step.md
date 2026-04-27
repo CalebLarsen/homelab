@@ -8,14 +8,14 @@ container belongs to a different (or no) compose project. In a homelab
 that gets manual `docker run` experiments, aborted deploys, and
 pre-Ansible legacy containers, this collision is common.
 
-See `roles/service-manager/tasks/main.yml` — the steps using
+See `roles/service_manager/tasks/main.yml` — the steps using
 `community.docker.docker_container_info` to find collisions and
 `community.docker.docker_container` with `state: absent` to remove the
 ones not labeled by compose.
 
 ## Decision
 
-Before each compose deploy, the service-manager role:
+Before each compose deploy, the service_manager role:
 
 1. Looks up any container holding the name of a service in the inventory.
 2. Checks the container's labels for `com.docker.compose.project`.

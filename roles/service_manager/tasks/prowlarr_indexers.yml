@@ -1,0 +1,80 @@
+---
+- name: Fetch available indexer definitions from Prowlarr
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/indexer/schema"
+    method: GET
+    headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
+    status_code: 200
+  register: service_manager_indexer_defs
+
+- name: Fetch currently configured proxies in Prowlarr
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/indexerproxy"
+    method: GET
+    headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
+    status_code: 200
+  register: service_manager_current_proxies
+
+- name: Ensure Flaresolverr proxy is configured
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/indexerproxy"
+    method: POST
+    headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
+    body_format: json
+    body:
+      name: "FlareSolverr"
+      implementation: "FlareSolverr"
+      configContract: "FlareSolverrSettings"
+      fields:
+        - { name: "baseUrl", value: "http://flaresolverr:8191" }
+    status_code: [200, 201]
+  when:
+    - service_manager_current_proxies.json is defined
+    - "service_manager_current_proxies.json | selectattr('name', 'equalto', 'FlareSolverr') | list | length == 0"
+
+- name: Fetch currently configured indexers in Prowlarr
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/indexer"
+    method: GET
+    headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
+    status_code: 200
+  register: service_manager_current_indexers
+
+- name: Ensure Prowlarr indexers are configured and enabled
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/indexer{{ '/' + (existing_indexer.id | string) if existing_indexer else '' }}?forceSave=true"
+    method: "{{ 'PUT' if existing_indexer else 'POST' }}"
+    headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
+    body_format: json
+    body:
+      id: "{{ existing_indexer.id | default(omit) }}"
+      name: "{{ indexer_def.name }}"
+      implementation: "{{ indexer_def.implementation }}"
+      configContract: "{{ indexer_def.configContract }}"
+      appProfileId: 1
+      protocol: "torrent"
+      priority: 25
+      privacy: "{{ indexer_def.privacy }}"
+      fields: "{{ indexer_def.fields }}"
+      enable: true
+      syncLevel: "fullSync"
+      tags: []
+    status_code: [200, 201, 202, 400] # 400 allowed because forceSave might still report site-down errors
+  loop: "{{ prowlarr_indexers }}"
+  loop_control:
+    loop_var: target_indexer
+  vars:
+    _matching_def: >-
+      {{ service_manager_indexer_defs.json | default([])
+         | selectattr('name', 'equalto', target_indexer) | list }}
+    _matching_existing: >-
+      {{ service_manager_current_indexers.json | default([])
+         | selectattr('name', 'equalto', target_indexer) | list }}
+    indexer_def: "{{ _matching_def | first if _matching_def | length > 0 else none }}"
+    existing_indexer: "{{ _matching_existing | first if _matching_existing | length > 0 else none }}"
+  when:
+    - indexer_def is not none
+    - service_manager_indexer_defs.json is defined
+    - service_manager_current_indexers.json is defined
+  # Final safety: don't let a single indexer site-down event crash the deploy.
+  failed_when: false

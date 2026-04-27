@@ -1,0 +1,8 @@
+---
+- name: Template Radarr config.xml
+  ansible.builtin.template:
+    src: config.xml.j2
+    dest: "{{ config_root }}/radarr/config.xml"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"

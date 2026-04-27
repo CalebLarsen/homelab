@@ -1,0 +1,16 @@
+---
+- name: Create Plex preferences directory
+  ansible.builtin.file:
+    path: "{{ config_root }}/plex/Library/Application Support/Plex Media Server"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    recurse: true
+
+- name: Template Plex preferences file
+  ansible.builtin.template:
+    src: plex_preferences.xml.j2
+    dest: "{{ config_root }}/plex/Library/Application Support/Plex Media Server/Preferences.xml"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0600"

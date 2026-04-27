@@ -9,10 +9,10 @@ first, then the rest of the config goes through the UI. There is no
 documented headless bootstrap path and no documented public API for
 seeding these tables.
 
-To make the deploy idempotent, the `service-manager` role writes to the
+To make the deploy idempotent, the `service_manager` role writes to the
 container's two SQLite DBs directly — `users.db` and `cleanuparr.db` —
 using hand-written `INSERT OR REPLACE` statements (see
-`roles/service-manager/tasks/api_wiring.yml`, the
+`roles/service_manager/tasks/api_wiring.yml`, the
 "Create Cleanuparr SQL Scripts" and "Inject Cleanuparr Configuration
 Scripts (Post-start)" tasks).
 

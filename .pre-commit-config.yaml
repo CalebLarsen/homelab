@@ -1,0 +1,53 @@
+---
+# Local "poor-man's CI" — runs on every commit. Heavier checks (full
+# ansible-lint, syntax-check, idempotency dry-run) are wired into
+# `make verify-local`. See docs/decisions/0008-pre-commit-local-ci.md.
+#
+# Setup once per clone:
+#   pip install pre-commit
+#   pre-commit install
+# Update hook versions periodically:
+#   pre-commit autoupdate
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # The SOPS-encrypted file embeds binary-ish base64 + non-standard
+        # `sops:` metadata that confuses some YAML parsers; it's covered
+        # by the local `sops-encrypted` hook below.
+        exclude: ^inventory/group_vars/all/secrets\.sops\.ya?ml$
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: ["-c", ".yamllint"]
+
+  - repo: https://github.com/ansible/ansible-lint
+    rev: v26.4.0
+    hooks:
+      - id: ansible-lint
+        # Limit to playbooks/roles/inventory; running on every YAML file
+        # produces a lot of irrelevant noise.
+        files: ^(site\.yml|clean\.yml|roles/.*\.ya?ml|inventory/.*\.ya?ml)$
+        # Skip the encrypted secrets file — ansible-lint can't parse it.
+        exclude: ^inventory/group_vars/all/secrets\.sops\.ya?ml$
+
+  # Tripwire: any file named *.sops.y(a)ml must contain a `sops:`
+  # metadata block, otherwise it's plaintext masquerading as encrypted.
+  # The leading `[^/]` excludes the SOPS rules file `.sops.yaml` itself
+  # (which is intentionally plaintext — it only holds age PUBLIC keys).
+  - repo: local
+    hooks:
+      - id: sops-encrypted
+        name: SOPS files must be encrypted
+        description: Refuse to commit a *.sops.yml that lacks a sops metadata block.
+        entry: scripts/check-sops-encrypted.sh
+        language: script
+        files: '[^/]\.sops\.ya?ml$'

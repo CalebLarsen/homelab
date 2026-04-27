@@ -1,21 +1,21 @@
 ---
 - name: Homelab Deployment
   hosts: homelab
-  become: yes
+  become: true
   roles:
     - { role: bootstrap, tags: ["bootstrap"] }
     - { role: mergerfs, tags: ["mergerfs"] }
     - { role: cloudflared, tags: ["cloudflared"] }
-    - { role: host-cron, tags: ["host-cron"] }
-    - { role: service-manager, tags: ["service-manager"] }
+    - { role: host_cron, tags: ["host_cron"] }
+    - { role: backup, tags: ["backup"] }
+    - { role: service_manager, tags: ["service_manager"] }
     - { role: notes, tags: ["notes"] }
 
   tasks:
     - name: Flush handlers to apply service changes
-      meta: flush_handlers
-
+      ansible.builtin.meta: flush_handlers
     - name: Run verification
-      include_role:
+      ansible.builtin.include_role:
         name: verify
         apply:
           tags: ["verify"]

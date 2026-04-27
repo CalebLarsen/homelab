@@ -1,8 +1,0 @@
----
-- name: Template Overseerr settings file
-  template:
-    src: overseerr_settings.json.j2
-    dest: "{{ config_root }}/overseerr/settings.json"
-    owner: "{{ puid }}"
-    group: "{{ pgid }}"
-    mode: '0644'

@@ -1,0 +1,101 @@
+---
+- name: Ensure nested qBittorrent config directory exists
+  ansible.builtin.file:
+    path: "{{ config_root }}/qbittorrent/qBittorrent"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+
+# Tracker list is pulled from ngosang/trackerslist (pinned by commit in
+# inventory). Fetched once per run on the Ansible controller — no internet
+# requirement on the homelab host. Falls back to an empty list if the
+# fetch fails so the deploy doesn't block on github.com being down.
+- name: Fetch pinned tracker list (ngosang/trackerslist)
+  ansible.builtin.uri:
+    url: "https://raw.githubusercontent.com/ngosang/trackerslist/{{ qbittorrent.trackers_source.repo_commit }}/{{ qbittorrent.trackers_source.file }}"
+    return_content: true
+    status_code: 200
+  register: service_manager_trackers_response
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  failed_when: false
+
+- name: Parse tracker list into a fact
+  ansible.builtin.set_fact:
+    service_manager_qbittorrent_trackers: >-
+      {{ (service_manager_trackers_response.content | default('')).split('\n')
+         | map('trim') | reject('equalto', '') | list }}
+
+- name: Warn if tracker list fetch failed
+  ansible.builtin.debug:
+    msg: |
+      Tracker list fetch failed (status {{ service_manager_trackers_response.status | default('?') }}).
+      qBittorrent will deploy with no AdditionalTrackers. To recover: check
+      network access to raw.githubusercontent.com from the controller, then
+      re-run. The pinned commit is {{ qbittorrent.trackers_source.repo_commit }}.
+  when: service_manager_trackers_response.status | default(0) != 200
+
+# Deterministic salt so the hash — and therefore qBittorrent.conf — is stable
+# across runs. Homelab threat model treats the secrets file as ground truth; a
+# derived salt is fine. Bump the domain string to force re-derivation.
+- name: Derive stable qBittorrent PBKDF2 hash
+  no_log: true
+  ansible.builtin.shell: |
+    python3 -c "
+    import base64, hashlib
+    password = '{{ admin_password }}'
+    salt = hashlib.sha256(b'qbittorrent-homelab-v1:' + password.encode()).digest()[:16]
+    key = hashlib.pbkdf2_hmac('sha512', password.encode(), salt, 100000)
+    print('{}:{}'.format(base64.b64encode(salt).decode(), base64.b64encode(key).decode()))
+    "
+  register: service_manager_qbittorrent_hash_raw
+  changed_when: false
+
+- name: Set qBittorrent hash fact
+  ansible.builtin.set_fact:
+    service_manager_qbittorrent_hash: "@ByteArray({{ service_manager_qbittorrent_hash_raw.stdout }})"
+
+- name: Plan qBittorrent config update (check-mode probe)
+  ansible.builtin.template:
+    src: qBittorrent.conf.j2
+    dest: "{{ config_root }}/qbittorrent/qBittorrent/qBittorrent.conf"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  check_mode: true
+  diff: false
+  register: service_manager_qbittorrent_planned
+  changed_when: false
+
+# Only disrupt qBittorrent when the config actually differs. The stop happens
+# in-band (not via handler) because qBittorrent must be down *before* the
+# template is written or it clobbers the edit from its in-memory state.
+- name: Apply qBittorrent config change  # noqa: no-handler  # see comment above — must run inline, not as a handler
+  when: service_manager_qbittorrent_planned.changed
+  block:
+    - name: Stop qBittorrent before config write
+      ansible.builtin.shell: "docker stop qbittorrent || true"
+      changed_when: false
+
+    - name: Remove qBittorrent stale recovery and lock files
+      ansible.builtin.file:
+        path: "{{ config_root }}/qbittorrent/qBittorrent/{{ stale_file }}"
+        state: absent
+      loop:
+        - qBittorrent_new.conf
+        - qBittorrent.conf.bak
+        - lockfile
+      loop_control:
+        loop_var: stale_file
+
+    - name: Write qBittorrent config file
+      ansible.builtin.template:
+        src: qBittorrent.conf.j2
+        dest: "{{ config_root }}/qbittorrent/qBittorrent/qBittorrent.conf"
+        owner: "{{ puid }}"
+        group: "{{ pgid }}"
+        mode: "0644"
+      notify: Restart qbittorrent

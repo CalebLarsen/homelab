@@ -1,0 +1,27 @@
+---
+# ansible-lint config. See https://ansible.readthedocs.io/projects/lint/configuring/
+# `production` is the strictest built-in profile. We hold to it so the rule
+# surface is meaningful. Per-task `# noqa: <rule>  # reason` is preferred
+# over global skips for any rule that's right most of the time but wrong
+# in one specific place.
+profile: production
+
+# Files / paths ansible-lint should not parse at all.
+exclude_paths:
+  - .ansible/
+  - .cache/
+  - .pre-commit-cache/
+  - .venv/
+  - inventory/group_vars/all/secrets.sops.yml # encrypted, not parseable
+  - .claude/
+  - docs/
+
+# Rules to skip globally. Each is a deliberate decision recorded so the
+# next reviewer can see the cost/benefit. We prefer per-task `# noqa`
+# annotations over global skips wherever the rule has a real reason in
+# only specific spots — globals are reserved for "this rule does not fit
+# the repo's conventions at all."
+skip_list: []
+
+# Tell ansible-lint where to find collections.
+offline: false

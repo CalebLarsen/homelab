@@ -20,7 +20,7 @@
 # Re-running `make deploy` after clean will restore a working deployment.
 - name: Clean Homelab Deployment
   hosts: homelab
-  become: yes
+  become: true
   tasks:
     - name: Tear down service Compose projects
       community.docker.docker_compose_v2:
@@ -33,7 +33,7 @@
         label: "{{ item.name }}"
 
     - name: Stop cloudflared systemd service
-      systemd:
+      ansible.builtin.systemd:
         name: cloudflared
         state: stopped
       # Not an error if the service was never installed.
@@ -44,18 +44,18 @@
         containers: true
 
     - name: Remove configuration directory
-      file:
+      ansible.builtin.file:
         path: "{{ config_root }}"
         state: absent
 
     - name: Recreate empty configuration directory
-      file:
+      ansible.builtin.file:
         path: "{{ config_root }}"
         state: directory
         owner: "{{ puid }}"
         group: "{{ pgid }}"
-        mode: '0755'
+        mode: "0755"
 
     - name: Report Status
-      debug:
+      ansible.builtin.debug:
         msg: "Homelab shut down and configs purged. Data in {{ data_root }} was preserved."

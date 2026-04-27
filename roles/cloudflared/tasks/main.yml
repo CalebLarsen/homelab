@@ -1,154 +1,162 @@
 ---
 - name: Verify Master Key locally
-  stat:
+  ansible.builtin.stat:
     path: "~/.cloudflared/cert.pem"
   delegate_to: localhost
-  become: no
-  register: _local_cert
+  become: false
+  register: cloudflared_local_cert
 
 - name: Notify user to check browser for Cloudflare login
-  pause:
+  ansible.builtin.pause:
     prompt: |
       --------------------------------------------------------------------------------
       MASTER KEY MISSING!
       A browser window will now open to authorize your Cloudflare account.
       Please log in and select your domain ({{ cloudflare.domain }}).
-      
+
       Press [ENTER] to open the browser and start the login flow...
       --------------------------------------------------------------------------------
   delegate_to: localhost
-  become: no
-  when: not _local_cert.stat.exists
+  become: false
+  when: not cloudflared_local_cert.stat.exists
 
 - name: Start Cloudflare Login Flow
-  command: "cloudflared tunnel login"
+  ansible.builtin.command: "cloudflared tunnel login"
   delegate_to: localhost
-  become: no
+  become: false
   async: 300
   poll: 0
-  when: not _local_cert.stat.exists
+  when: not cloudflared_local_cert.stat.exists
 
 - name: Wait for Master Key to be authorized (Up to 5 minutes)
-  wait_for:
+  ansible.builtin.wait_for:
     path: "{{ lookup('env', 'HOME') }}/.cloudflared/cert.pem"
     state: present
     timeout: 300
   delegate_to: localhost
-  become: no
-  when: not _local_cert.stat.exists
+  become: false
+  when: not cloudflared_local_cert.stat.exists
 
 - name: Check if tunnel already exists locally
-  shell: "cloudflared tunnel list | grep -q {{ cloudflare.tunnel_name }}"
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && cloudflared tunnel list | grep -q {{ cloudflare.tunnel_name }}"
+    executable: /bin/bash
   delegate_to: localhost
-  become: no
-  register: _tunnel_exists
+  become: false
+  register: cloudflared_tunnel_exists
   # grep returns 1 when no match — that's the "tunnel missing" signal, not a
-  # failure. Downstream tasks branch on _tunnel_exists.rc.
+  # failure. Downstream tasks branch on cloudflared_tunnel_exists.rc.
   failed_when: false
   changed_when: false
 
 - name: Create Tunnel locally
-  shell: "cloudflared tunnel create {{ cloudflare.tunnel_name }}"
+  ansible.builtin.command: "cloudflared tunnel create {{ cloudflare.tunnel_name }}"
   delegate_to: localhost
-  become: no
-  register: _tunnel_create
-  when: _tunnel_exists.rc != 0
-  changed_when: "'Created tunnel' in _tunnel_create.stdout"
+  become: false
+  register: cloudflared_tunnel_create
+  when: cloudflared_tunnel_exists.rc != 0
+  changed_when: "'Created tunnel' in cloudflared_tunnel_create.stdout"
 
 - name: Get Tunnel ID locally
-  shell: "cloudflared tunnel list | grep {{ cloudflare.tunnel_name }} | awk '{print $1}'"
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && cloudflared tunnel list | grep {{ cloudflare.tunnel_name }} | awk '{print $1}'"
+    executable: /bin/bash
   delegate_to: localhost
-  become: no
-  register: _tunnel_id
+  become: false
+  register: cloudflared_tunnel_id
   changed_when: false
 
 - name: Route Wildcard DNS locally
-  shell: "cloudflared tunnel route dns {{ cloudflare.tunnel_name }} \"*.{{ cloudflare.domain }}\""
+  ansible.builtin.shell: "cloudflared tunnel route dns {{ cloudflare.tunnel_name }} \"*.{{ cloudflare.domain }}\""
   delegate_to: localhost
-  become: no
-  register: _dns_route_wildcard
+  become: false
+  register: cloudflared_dns_route_wildcard
   # cloudflared exits non-zero when the route already exists; changed_when
   # captures the "actually did something" case.
   failed_when: false
-  when: _tunnel_exists.rc != 0
-  changed_when: "'Successfully' in _dns_route_wildcard.stdout"
+  when: cloudflared_tunnel_exists.rc != 0
+  changed_when: "'Successfully' in cloudflared_dns_route_wildcard.stdout"
 
 - name: Route Root DNS locally
-  shell: "cloudflared tunnel route dns {{ cloudflare.tunnel_name }} \"{{ cloudflare.domain }}\""
+  ansible.builtin.command: "cloudflared tunnel route dns {{ cloudflare.tunnel_name }} \"{{ cloudflare.domain }}\""
   delegate_to: localhost
-  become: no
-  register: _dns_route_root
+  become: false
+  register: cloudflared_dns_route_root
   # Same behaviour as the wildcard route above: treat "already exists" as OK.
   failed_when: false
-  when: _tunnel_exists.rc != 0
-  changed_when: "'Successfully' in _dns_route_root.stdout"
+  when: cloudflared_tunnel_exists.rc != 0
+  changed_when: "'Successfully' in cloudflared_dns_route_root.stdout"
 
 - name: Route Public Services to Tunnel
-  shell: "cloudflared tunnel route dns {{ cloudflare.tunnel_name }} \"{{ item.subdomain }}.{{ cloudflare.domain }}\""
+  ansible.builtin.command: "cloudflared tunnel route dns {{ cloudflare.tunnel_name }} \"{{ item.subdomain }}.{{ cloudflare.domain }}\""
   delegate_to: localhost
-  become: no
+  become: false
   loop: "{{ services | selectattr('public', 'defined') | selectattr('public', 'equalto', true) | rejectattr('subdomain', 'equalto', '@') | list }}"
-  register: _cf_route_res
+  register: cloudflared_cf_route_res
   # Existing CNAMEs cause non-zero exit; changed_when flags genuine additions.
   failed_when: false
-  changed_when: "'Added CNAME' in _cf_route_res.stdout"
+  changed_when: "'Added CNAME' in cloudflared_cf_route_res.stdout"
 
 - name: Read local credentials file
-  shell: "cat {{ lookup('env', 'HOME') }}/.cloudflared/{{ _tunnel_id.stdout }}.json"
+  ansible.builtin.command: "cat {{ lookup('env', 'HOME') }}/.cloudflared/{{ cloudflared_tunnel_id.stdout }}.json"
   delegate_to: localhost
-  become: no
-  register: _tunnel_json
+  become: false
+  register: cloudflared_tunnel_json
   changed_when: false
 
 - name: Ensure /etc/cloudflared exists on server
-  file:
+  ansible.builtin.file:
     path: /etc/cloudflared
     state: directory
     owner: root
     group: root
-    mode: '0755'
+    mode: "0755"
 
 - name: Deploy credentials to server
-  copy:
-    content: "{{ _tunnel_json.stdout }}"
+  ansible.builtin.copy:
+    content: "{{ cloudflared_tunnel_json.stdout }}"
     dest: "/etc/cloudflared/credentials.json"
     owner: root
     group: root
-    mode: '0600'
+    mode: "0600"
 
 - name: Deploy cloudflared config
-  template:
+  ansible.builtin.template:
     src: cloudflared_config.yaml.j2
     dest: /etc/cloudflared/config.yml
+    owner: root
+    group: root
+    mode: "0644"
   vars:
-    tunnel_id: "{{ _tunnel_id.stdout }}"
+    tunnel_id: "{{ cloudflared_tunnel_id.stdout }}"
 
 - name: Check if cloudflared is installed on server
-  command: which cloudflared
-  register: _cf_installed
+  ansible.builtin.command: which cloudflared
+  register: cloudflared_cf_installed
   # Probe for the binary — rc != 0 just means "not installed yet", handled
   # by the subsequent install tasks.
   failed_when: false
   changed_when: false
 
 - name: Download cloudflared package on server
-  get_url:
+  ansible.builtin.get_url:
     url: https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
     dest: /tmp/cloudflared.deb
-  when: _cf_installed.rc != 0
+    mode: "0644"
+  when: cloudflared_cf_installed.rc != 0
 
 - name: Install cloudflared on server
-  apt:
+  ansible.builtin.apt:
     deb: /tmp/cloudflared.deb
-  when: _cf_installed.rc != 0
+  when: cloudflared_cf_installed.rc != 0
 
 - name: Install cloudflared service
-  shell: cloudflared service install
+  ansible.builtin.command: cloudflared service install
   args:
     creates: /etc/systemd/system/cloudflared.service
 
 - name: Ensure cloudflared service is enabled and running
-  systemd:
+  ansible.builtin.systemd:
     name: cloudflared
     state: started
     enabled: true

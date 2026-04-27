@@ -25,7 +25,7 @@ caused the cleanuparr SQL incident this guidance exists to prevent.
 
 ## Before suggesting SQL or direct DB writes
 
-The cleanuparr provisioning in `roles/service-manager/tasks/api_wiring.yml`
+The cleanuparr provisioning in `roles/service_manager/tasks/api_wiring.yml`
 seeds a SQLite DB with hand-written `INSERT` statements. Schemas drift
 between releases and most projects in this repo do **not** publish their
 schema. Before adding or changing any of these statements:
@@ -50,7 +50,7 @@ schema. Before adding or changing any of these statements:
 ## Before changing the deployment hierarchy
 
 Read `docs/architecture.md` first — it explains where each layer of the
-deploy lives (`site.yml` → roles → service-manager → per-service tasks →
+deploy lives (`site.yml` → roles → service_manager → per-service tasks →
 compose templates), and which decisions are load-bearing (`docs/decisions/`).
 A change in the wrong layer is how drift gets introduced.
 

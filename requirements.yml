@@ -1,0 +1,16 @@
+---
+# Ansible collections required to run the playbook AND for ansible-lint to
+# parse it (lint without these flags `community.docker.docker_compose_v2`
+# and friends as `syntax-check[unknown-module]`).
+#
+# Install:
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.docker
+    version: ">=3.10.0"
+  - name: community.sops
+    version: ">=2.0.0"
+  - name: community.general
+    version: ">=10.0.0"
+  - name: ansible.posix
+    version: ">=1.5.0"

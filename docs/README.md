@@ -8,6 +8,8 @@ matches what you're doing.
 | Understand how a deploy is structured (which roles run, in what order, where to make a change) | [architecture.md](architecture.md) |
 | Find the canonical upstream docs for a service before suggesting any config | [sources.md](sources.md) |
 | Understand a non-obvious decision baked into the repo (why something is the way it is) | [decisions/](decisions/) |
+| Set up secrets on a new machine, add a recipient, or rotate a key | [secrets.md](secrets.md) |
+| Restore from backup, or understand what is and isn't covered | [backups.md](backups.md) |
 | Onboard a new Plex user | [PLEX_USER_ONBOARDING.md](PLEX_USER_ONBOARDING.md) |
 
 ## For agents (Claude / models)

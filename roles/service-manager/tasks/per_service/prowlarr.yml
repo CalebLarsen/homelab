@@ -1,8 +1,0 @@
----
-- name: Template Prowlarr config.xml
-  template:
-    src: config.xml.j2
-    dest: "{{ config_root }}/prowlarr/config.xml"
-    owner: "{{ puid }}"
-    group: "{{ pgid }}"
-    mode: '0644'

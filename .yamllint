@@ -1,0 +1,38 @@
+---
+extends: default
+
+# Where this config disagrees with ansible-lint's hardcoded yaml ruleset,
+# ansible-lint wins — it refuses to run otherwise. Specifically:
+#   braces.max-spaces-inside: 1  (we set this — was hitting 116 errors at 0)
+#   octal-values: both forbids enabled  (ansible-lint requires)
+rules:
+  # Ansible/playbook YAML routinely runs long; 80 cols is too tight.
+  line-length:
+    max: 160
+    level: warning
+  # Booleans like `yes`/`no` are valid YAML and idiomatic in Ansible.
+  truthy:
+    allowed-values: ["true", "false", "yes", "no"]
+    check-keys: false
+  # Ansible's `---` and `become: yes` style sometimes trip the comments
+  # rule; relax it.
+  comments:
+    min-spaces-from-content: 1
+  # Trailing comments on YAML list items (very common in inventory) trigger
+  # `comments-indentation` false positives.
+  comments-indentation: disable
+  # Match ansible-lint: allow up to 1 space inside braces. The default of 0
+  # is incompatible with ansible-lint and produced 116 spurious errors on
+  # patterns like `{ name: 'Foo' }` that the existing repo uses everywhere.
+  braces:
+    max-spaces-inside: 1
+  # ansible-lint requires both implicit and explicit octal forms forbidden.
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+
+ignore: |
+  inventory/group_vars/all/secrets.sops.yml
+  .ansible/
+  .venv/
+  .pre-commit-cache/

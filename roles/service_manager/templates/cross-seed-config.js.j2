@@ -1,0 +1,43 @@
+// cross-seed config — rendered post-deploy by api_wiring.yml after Prowlarr's
+// indexer list has been enumerated. Don't edit by hand; changes get
+// overwritten on next deploy.
+// Docs: https://www.cross-seed.org/docs/basics/options
+module.exports = {
+  // How often to scan for new candidates (seconds between cycles).
+  delay: 30,
+
+  // Per-indexer torznab feeds discovered from Prowlarr.
+  torznab: [
+{% for indexer in cross_seed_indexers | default([]) %}
+    "http://gluetun:9696/{{ indexer.id }}/api?apikey={{ service_manager_prowlarr_api_key }}",
+{% endfor %}
+  ],
+
+  // Where torrent payload data lives (must match qBittorrent's view).
+  dataDirs: ["/data/torrents"],
+
+  // Hardlinks work because the mergerfs role pre-creates cross-seed-links/
+  // on every underlying branch — mergerfs's create policy can then keep the
+  // link on the same branch as the source file, avoiding EXDEV.
+  linkType: "hardlink",
+  linkDirs: ["/data/cross-seed-links"],
+
+  // "safe" matches by exact size + name; "risky" allows fuzzy matching.
+  matchMode: "safe",
+
+  // "inject" sends matched torrents straight to qBittorrent; "save" writes
+  // .torrent files to outputDir only.
+  action: "inject",
+  outputDir: null,
+
+  // qBittorrent connection (admin password lives in SOPS).
+  torrentClients: [
+    "qbittorrent:http://admin:{{ admin_password }}@gluetun:6969",
+  ],
+
+  // HTTP server for webhook + status; exposed on the docker_network.
+  port: 2468,
+
+  // Skip files smaller than 2% size delta when matching.
+  fuzzySizeThreshold: 0.02,
+};

@@ -11,8 +11,9 @@ site.yml                                  Playbook entry point — orders the ro
     ├── bootstrap/                        Host prereqs (docker, packages, user)
     ├── mergerfs/                         Pool the disks (see decisions/0001)
     ├── cloudflared/                      Tunnel + per-hostname DNS routing
-    ├── host-cron/                        Host-level scripts + cron entries
-    ├── service-manager/                  Where every container is provisioned
+    ├── host_cron/                        Host-level scripts + cron entries
+    ├── backup/                           Nightly restic backup of /home/caleb/config (decisions/0009)
+    ├── service_manager/                  Where every container is provisioned
     │   ├── tasks/main.yml                The high-level deploy loop
     │   ├── tasks/per_service/<name>.yml  Per-service pre-deploy steps
     │   ├── tasks/api_wiring.yml          Post-deploy API + SQL provisioning
@@ -25,11 +26,11 @@ site.yml                                  Playbook entry point — orders the ro
 └── inventory/group_vars/all/secrets.sops.yml  SOPS-encrypted secrets, decrypted at run time
 ```
 
-Run `site.yml` and the roles fire in this order. `service-manager` is by far
+Run `site.yml` and the roles fire in this order. `service_manager` is by far
 the heaviest — read its `tasks/main.yml` end-to-end at least once before
 touching it.
 
-## What `service-manager` does, in order
+## What `service_manager` does, in order
 
 1. **Ensure the shared docker network exists** (`docker_network`).
 2. **Install `sqlite3`** on the host. This is required because some services
@@ -61,19 +62,19 @@ touching it.
 
 | Change you want to make | File to edit |
 | --- | --- |
-| Add a new service | `inventory/group_vars/all/main.yml` (add to `services:` list) + `services/<name>/docker-compose.yml.j2` + `roles/service-manager/tasks/per_service/<name>.yml` (can be a stub) |
+| Add a new service | `inventory/group_vars/all/main.yml` (add to `services:` list) + `services/<name>/docker-compose.yml.j2` + `roles/service_manager/tasks/per_service/<name>.yml` (can be a stub) |
 | Pin or bump an image tag | `inventory/group_vars/all/main.yml` |
 | Change a port, expose publicly, or move behind the VPN | `inventory/group_vars/all/main.yml` (`port`, `public`, `subdomain`, `use_vpn`) |
-| Tune a service's runtime config | The shared templates in `roles/service-manager/templates/` (e.g. `qBittorrent.conf.j2`, `plex_preferences.xml.j2`, `kometa_config.yml.j2`, `overseerr_settings.json.j2`) |
-| Change pre-deploy provisioning for one service | `roles/service-manager/tasks/per_service/<name>.yml` |
-| Change post-deploy API/SQL wiring | `roles/service-manager/tasks/api_wiring.yml` |
+| Tune a service's runtime config | The shared templates in `roles/service_manager/templates/` (e.g. `qBittorrent.conf.j2`, `plex_preferences.xml.j2`, `kometa_config.yml.j2`, `overseerr_settings.json.j2`) |
+| Change pre-deploy provisioning for one service | `roles/service_manager/tasks/per_service/<name>.yml` |
+| Change post-deploy API/SQL wiring | `roles/service_manager/tasks/api_wiring.yml` |
 | Add a public subdomain | `inventory/group_vars/all/main.yml` (`subdomain` + `public: true`) AND ensure `cloudflared tunnel route dns` runs — see `decisions/0004-cloudflared-per-hostname-dns.md` |
-| Add a host-level cron job | `inventory/group_vars/all/main.yml` (`host_cron_jobs:`) + script in `roles/host-cron/files/` |
+| Add a host-level cron job | `inventory/group_vars/all/main.yml` (`host_cron_jobs:`) + script in `roles/host_cron/files/` |
 
 ## Conventions worth knowing
 
 - **Service identity is keyed by `name`.** Compose project name, container
-  name, service-manager loop variable, appdata directory under
+  name, service_manager loop variable, appdata directory under
   `{{ config_root }}`, internal DNS name on `{{ docker_network }}` — all
   match `services[*].name`.
 - **`puid` / `pgid` are global** (`inventory/group_vars/all/main.yml`).

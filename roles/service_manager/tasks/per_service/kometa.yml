@@ -1,0 +1,8 @@
+---
+- name: Template Kometa config file
+  ansible.builtin.template:
+    src: kometa_config.yml.j2
+    dest: "{{ config_root }}/kometa/config.yml"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"

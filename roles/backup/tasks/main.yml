@@ -1,0 +1,75 @@
+---
+# Local-only backup of /home/caleb/config to /media/seagate via restic.
+# See docs/decisions/0009-local-restic-backup.md and docs/backups.md.
+
+- name: Refuse to deploy backup role without restic_password in secrets
+  ansible.builtin.fail:
+    msg: |
+      restic_password is not set. The backup role requires a long-lived
+      passphrase stored in inventory/group_vars/all/secrets.sops.yml. To
+      add it:
+        make edit-secrets
+        # add:
+        #   restic_password: "<a strong, machine-generated passphrase>"
+      Then commit the rotated secrets file. Without this, the restic
+      repository cannot be opened on subsequent runs.
+  when: restic_password is not defined or (restic_password | length) < 16
+
+- name: Install restic
+  ansible.builtin.apt:
+    name: restic
+    state: present
+
+- name: Ensure backup target directory exists
+  ansible.builtin.file:
+    path: "{{ backup.target }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0700"
+
+# A restic repo is a self-describing directory; if `snapshots` works, it's
+# initialized. We only `init` when it doesn't already exist — running init
+# against an initialized repo errors with "config file already exists" but
+# is otherwise harmless.
+- name: Probe restic repository state
+  ansible.builtin.command: restic -r {{ backup.target }} snapshots --json --quiet
+  environment:
+    RESTIC_PASSWORD: "{{ restic_password }}"
+  register: backup_restic_probe
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Initialize restic repository (first deploy only)
+  ansible.builtin.command: restic -r {{ backup.target }} init
+  environment:
+    RESTIC_PASSWORD: "{{ restic_password }}"
+  when: backup_restic_probe.rc != 0
+  changed_when: true  # init only runs when missing; if it runs at all, it changed state
+  no_log: true
+
+- name: Deploy backup script
+  ansible.builtin.template:
+    src: run-backup.sh.j2
+    dest: /usr/local/sbin/homelab-backup.sh
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Ensure backup log file exists
+  ansible.builtin.file:
+    path: /var/log/homelab-backup.log
+    state: touch
+    owner: root
+    group: root
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Schedule nightly backup at 03:00
+  ansible.builtin.cron:
+    name: "Homelab restic backup"
+    minute: "0"
+    hour: "3"
+    job: "/usr/local/sbin/homelab-backup.sh >> /var/log/homelab-backup.log 2>&1"

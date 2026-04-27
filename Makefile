@@ -1,8 +1,20 @@
 .DEFAULT_GOAL := deploy
-.PHONY: deploy clean edit-secrets _init check new-service
+.PHONY: deploy clean edit-secrets _init check new-service lint verify-local
 
 check:
 	ansible-playbook site.yml --syntax-check
+
+# Run every pre-commit hook against every tracked file. Use before pushing
+# if you've been bypassing hooks. Slower than commit-time hooks because
+# nothing is cached against the index.
+lint:
+	pre-commit run --all-files
+
+# "Poor-man's CI" — what cloud CI would run, but local. Lint, syntax-check,
+# and a check-mode dry run against the live host (no changes applied).
+verify-local: lint check
+	@echo "==> Dry-run against live host (no changes will be applied)"
+	ansible-playbook site.yml --check --diff
 
 clean:
 	ansible-playbook clean.yml
