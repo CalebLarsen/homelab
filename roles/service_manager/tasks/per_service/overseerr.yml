@@ -1,8 +1,5 @@
 ---
-- name: Template Overseerr settings file
-  ansible.builtin.template:
-    src: overseerr_settings.json.j2
-    dest: "{{ config_root }}/overseerr/settings.json"
-    owner: "{{ puid }}"
-    group: "{{ pgid }}"
-    mode: "0644"
+# No per-service pre-deploy configuration needed.
+# settings.json is managed by Seerr itself (auto-migrated from Overseerr on
+# 2026-04-26). Settings change via the UI or via api_wiring.yml POST/PUTs;
+# the on-disk file is not templated. See decisions/0007.

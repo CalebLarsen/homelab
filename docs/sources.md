@@ -56,18 +56,18 @@ Hub page before bumping the tag.
 
 | Service | Image | Upstream project / repo | API / config reference | Docker image docs |
 | --- | --- | --- | --- | --- |
-| overseerr | `lscr.io/linuxserver/overseerr:latest` | https://github.com/sct/overseerr ⚠️ archived 2026-02-15 | Historical docs redirect to https://docs.seerr.dev/ — current Overseerr API: still served at `/api/v1/docs` on the running instance | https://docs.linuxserver.io/images/docker-overseerr/ |
+| overseerr (Seerr) | `ghcr.io/seerr-team/seerr:v3.2.0` ⚠️ pinned | https://github.com/seerr-team/seerr | Docs: https://docs.seerr.dev/ — Migration guide: https://docs.seerr.dev/migration-guide — API still served at `/api/v1/docs` on the running instance | (none separate; image is built by the project) |
 | kometa | `kometateam/kometa:latest` | https://kometa.wiki/ | Config overview: https://kometa.wiki/en/config/overview — Builders/filters: https://kometa.wiki/en/latest/ | (none separate; image is built by the project) |
 | recyclarr | `ghcr.io/recyclarr/recyclarr:latest` | https://recyclarr.dev/ | Configuration reference: https://recyclarr.dev/wiki/reference/configuration/ — Wiki: https://recyclarr.dev/wiki/ | (none separate) |
 | cleanuparr | `ghcr.io/cleanuparr/cleanuparr:2.9.8` ⚠️ pinned | https://github.com/Cleanuparr/Cleanuparr | Docs site: https://cleanuparr.github.io/Cleanuparr/ — **no schema docs**: see `decisions/0005-cleanuparr-pinned-tag.md` and read the live DB schema before any SQL change | (none separate) |
 
-**Note on overseerr:** the original sct/overseerr repo was archived
-2026-02-15 in favor of Seerr (a merger with Jellyseerr). The LSIO image we
-deploy still tracks the original codebase. If a config question is not
-answered in the live `/config/settings.json` or the LSIO image docs, the
-Seerr docs (https://docs.seerr.dev/) are the closest still-maintained
-reference, but check whether the feature exists in the older codebase
-before suggesting it.
+**Note on overseerr:** the service is still named `overseerr` in the
+inventory and DNS (`request.caleb.trade`), but the image is now Seerr —
+the unified project that merged the archived sct/overseerr (2026-02-15)
+with Jellyseerr. Migration was performed 2026-04-26 (see
+`decisions/0007-overseerr-to-seerr-migration.md`). The settings.json and
+db.sqlite3 were auto-migrated in place by Seerr on first boot. Container
+config path is `/app/config` (was `/config` on the LSIO image).
 
 ## Reverse proxy / network edge
 

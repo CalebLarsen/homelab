@@ -4,12 +4,17 @@ services:
   overseerr:
     image: "{{ item.image }}"
     container_name: overseerr
+    init: true  # Required by Seerr (ghcr.io/seerr-team/seerr); see decisions/0007.
     environment:
       - PUID={{ puid }}
       - PGID={{ pgid }}
       - TZ="{{ timezone }}"
     volumes:
-      - "{{ config_root }}/overseerr:/config"
+      # Seerr's config path is /app/config (Overseerr/LSIO used /config).
+      # Mounting the same host appdata triggers Seerr's automatic in-place
+      # migration on first start — see decisions/0007 and
+      # https://docs.seerr.dev/migration-guide.
+      - "{{ config_root }}/overseerr:/app/config"
 {% set use_vpn = item.use_vpn | default(false) %}
 {% set host_port = item.port %}
 {% set internal_port = 5055 %}

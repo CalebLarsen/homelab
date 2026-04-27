@@ -99,9 +99,11 @@ services:
     subdomain: "request"
     port: 5055
     public: true
-    # Upstream sct/overseerr archived 2026-02-15. See docs/decisions/0007
-    # for the planned migration to Seerr.
-    image: "lscr.io/linuxserver/overseerr:v1.34.0-ls139@sha256:b3f7885d699434e6409ff79298c8a65fdab5ea0fbf58fbb595c18d8a40950ef7"
+    # Migrated 2026-04-26 from lscr.io/linuxserver/overseerr (sct/overseerr,
+    # archived 2026-02-15) to ghcr.io/seerr-team/seerr per decisions/0007.
+    # Service is still named `overseerr` (DNS, appdata path, compose project)
+    # to keep the migration small; can rename to `seerr` later.
+    image: "ghcr.io/seerr-team/seerr:v3.2.0@sha256:c4cbd5121236ac2f70a843a0b920b68a27976be57917555f1c45b08a1e6b2aad"
   - name: plex
     subdomain: "plex"
     port: 32400
