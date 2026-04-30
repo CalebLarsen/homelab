@@ -141,6 +141,25 @@ services:
     # between major tags (the "distroless" variants use /root/.syncserver
     # instead of /anki_data). Bump deliberately.
     image: "jeankhawand/anki-sync-server:25.07@sha256:bac64aef13fbfe3e2e3ce8c25da732763bcdffe856225e366d4cda54eb829ef9"
+  - name: uptime-kuma
+    port: 3001
+    image: "louislam/uptime-kuma:2.2.1@sha256:7337368a77873f159435de9ef09567f68c31285ed5f951dec36256c4b267ee44"
+  - name: phone-logger
+    port: 5001
+    # Locally built from a separate public repo; no registry digest. Source
+    # is checked out on the host and `docker build` runs at deploy time.
+    # See docs/decisions/0010-locally-built-services.md.
+    image: "phone-logger:local"
+    build_local: true
+    source_repo: "https://github.com/CalebLarsen/phone-logger.git"
+    source_branch: "main"
+  - name: audiobookbay-automated # ABB → qBittorrent magnet handoff for audiobooks
+    port: 5078
+    # Upstream only publishes :latest, so digest-only pin per the image
+    # policy at the top of `services:`. Bump by re-pulling on the host
+    # and capturing the new RepoDigest.
+    # Source: github.com/JamesRy96/audiobookbay-automated.
+    image: "ghcr.io/jamesry96/audiobookbay-automated@sha256:be58c8a0c2ef4ec4c1a1cc6714791b5b72c8bf62a24774ee8c784257c87a2678"
 
 overseerr:
   # client_id, plex_machine_id, and users[] live in overseerr_secret.* in the

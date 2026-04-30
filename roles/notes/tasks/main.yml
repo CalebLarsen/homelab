@@ -16,14 +16,3 @@
     force: true
   become_user: "{{ ansible_user }}"
   become: true
-
-# The cloudflared role's per-service DNS loop only walks the services list, and
-# the wildcard CNAME there only fires on initial tunnel creation. Register the
-# subdomain explicitly so Cloudflare CNAMEs note.caleb.trade to the tunnel.
-- name: Route note subdomain to Cloudflare tunnel
-  ansible.builtin.command: 'cloudflared tunnel route dns {{ cloudflare.tunnel_name }} "note.{{ cloudflare.domain }}"'
-  delegate_to: localhost
-  become: false
-  register: _notes_dns_route
-  failed_when: false
-  changed_when: "'Added CNAME' in _notes_dns_route.stdout"

@@ -1,5 +1,8 @@
 ---
 # --- ADR 0006: every service is pinned to a digest, no floating tags ---
+# Locally-built services (build_local: true) are exempt — they have no
+# registry image to pin. Source reproducibility comes from the public git
+# repo declared in their `source_repo`. See decisions/0010.
 - name: Verify all service images are pinned to a digest
   ansible.builtin.assert:
     that: "'@sha256:' in item.image"
@@ -7,6 +10,7 @@
   loop: "{{ services }}"
   loop_control:
     label: "{{ item.name }}"
+  when: "not (item.build_local | default(false))"
 
 # Query /proc/mounts directly via the live kernel — ansible_facts.mounts is
 # captured at play start and does not refresh when the mergerfs role mounts

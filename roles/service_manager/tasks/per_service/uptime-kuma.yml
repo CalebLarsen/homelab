@@ -1,0 +1,10 @@
+---
+# Uptime Kuma is internal-only — reached via LAN / Tailscale on host port
+# 3001. Appdata is created by the service_manager loop; SQLite DB lives in
+# /app/data inside the container, bind-mounted from config_root/uptime-kuma.
+#
+# First-time setup is interactive: open http://<homelab>:3001/ on the LAN
+# and create the admin account. After that, define monitors per service —
+# every container on the homelab_network is reachable by its compose name
+# (e.g. http://plex:32400, http://audiobookshelf:80) from inside this
+# container, no published ports needed.

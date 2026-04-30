@@ -9,6 +9,7 @@ services:
       - PGID={{ pgid }}
       - TZ="{{ timezone }}"
       - SYNC_USER1={{ anki_secret.sync_user1 }}
+      - SYNC_USER2={{ anki_secret.sync_user2 }}
     volumes:
       - "{{ config_root }}/anki:/anki_data"
 {% set use_vpn = item.use_vpn | default(false) %}

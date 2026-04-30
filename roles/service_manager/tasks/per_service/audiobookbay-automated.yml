@@ -1,0 +1,5 @@
+---
+# audiobookbay-automated has no pre-deploy steps. The compose template
+# wires it directly to qBittorrent (via gluetun) using existing creds.
+# This stub exists because service_manager/tasks/main.yml unconditionally
+# includes per_service/{{ item.name }}.yml for every service.

@@ -9,8 +9,9 @@ site.yml`) actually unfolds, and where to make changes.
 site.yml                                  Playbook entry point — orders the roles
 └── roles/
     ├── bootstrap/                        Host prereqs (docker, packages, user)
+    ├── dev_env/                          User-level shell, dotfiles, CLI tools
     ├── mergerfs/                         Pool the disks (see decisions/0001)
-    ├── cloudflared/                      Tunnel + per-hostname DNS routing
+    ├── cloudflared/                      Tunnel + wildcard DNS routing
     ├── host_cron/                        Host-level scripts + cron entries
     ├── backup/                           Nightly restic backup of /home/caleb/config (decisions/0009)
     ├── service_manager/                  Where every container is provisioned
@@ -68,7 +69,7 @@ touching it.
 | Tune a service's runtime config | The shared templates in `roles/service_manager/templates/` (e.g. `qBittorrent.conf.j2`, `plex_preferences.xml.j2`, `kometa_config.yml.j2`, `overseerr_settings.json.j2`) |
 | Change pre-deploy provisioning for one service | `roles/service_manager/tasks/per_service/<name>.yml` |
 | Change post-deploy API/SQL wiring | `roles/service_manager/tasks/api_wiring.yml` |
-| Add a public subdomain | `inventory/group_vars/all/main.yml` (`subdomain` + `public: true`) AND ensure `cloudflared tunnel route dns` runs — see `decisions/0004-cloudflared-per-hostname-dns.md` |
+| Add a public subdomain | `inventory/group_vars/all/main.yml` (`subdomain` + `public: true`); the zone's wildcard CNAME handles DNS — see `decisions/0004-cloudflared-wildcard-dns.md` |
 | Add a host-level cron job | `inventory/group_vars/all/main.yml` (`host_cron_jobs:`) + script in `roles/host_cron/files/` |
 
 ## Conventions worth knowing
@@ -88,5 +89,9 @@ touching it.
   Currently pinned: `cleanuparr` (DB schema coupling — see decision 0005),
   `anki` (volume path changes between major tags), `mergerfs` (host-level,
   in `mergerfs_version`).
+- **Locally-built services** carry `build_local: true` instead of a digest
+  pin. Source lives in a separate public repo (`source_repo`) and is
+  cloned + built on the host at deploy time. Currently: `phone-logger`.
+  See `decisions/0010-locally-built-services.md`.
 - **Secrets live in `inventory/group_vars/all/secrets.sops.yml`.** Decrypt
   with `sops` before reading; never paste secret content into other files.

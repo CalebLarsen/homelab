@@ -1,0 +1,71 @@
+---
+# phone-logger is locally built from a separate public repo
+# (item.source_repo). See docs/decisions/0010-locally-built-services.md.
+# This task: clones/updates the source on the host, builds the image with
+# the tag declared in `item.image`, ensures the appdata data dir exists,
+# and one-shot migrates the legacy ~/projects/phone-usage/data tree if
+# it's still present.
+
+- name: Ensure projects directory exists
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/projects"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+# `force: true` is intentional: the source checkout is deploy-owned, not a
+# working tree. Local edits would be a sign of someone hacking on the live
+# host; `force` discards them so deploys are reproducible from main.
+- name: Clone or update phone-logger source
+  ansible.builtin.git:
+    repo: "{{ item.source_repo }}"
+    dest: "/home/{{ ansible_user }}/projects/phone-logger"
+    version: "{{ item.source_branch | default('main') }}"
+    update: true
+    force: true
+  become: true
+  become_user: "{{ ansible_user }}"
+  register: service_manager_phone_logger_src
+
+# Build with `community.docker.docker_image`: builds when the local image
+# tag is missing, or when the source checkout changed (force_source). This
+# keeps the deploy idempotent — no rebuild when nothing moved.
+- name: Build phone-logger image
+  community.docker.docker_image:
+    name: "{{ item.image.split(':') | first }}"
+    tag: "{{ item.image.split(':') | last }}"
+    source: build
+    build:
+      path: "/home/{{ ansible_user }}/projects/phone-logger"
+      pull: false
+    force_source: "{{ service_manager_phone_logger_src.changed }}"
+    state: present
+
+- name: Ensure phone-logger data directory exists
+  ansible.builtin.file:
+    path: "{{ config_root }}/phone-logger/data"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+
+# One-shot migration from the old pet location. The marker file means this
+# only runs once, even if the legacy data dir lingers.
+- name: Detect legacy phone-usage data directory
+  ansible.builtin.stat:
+    path: "/home/{{ ansible_user }}/projects/phone-usage/data"
+  register: service_manager_phone_logger_legacy
+
+- name: Migrate legacy phone-usage data into appdata (one-shot)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    src="/home/{{ ansible_user }}/projects/phone-usage/data"
+    dst="{{ config_root }}/phone-logger/data"
+    rsync -a --ignore-existing "$src/" "$dst/"
+    chown -R {{ puid }}:{{ pgid }} "$dst"
+    touch "$src/.migrated_to_phone-logger"
+  args:
+    creates: "/home/{{ ansible_user }}/projects/phone-usage/data/.migrated_to_phone-logger"
+    executable: /bin/bash
+  when: service_manager_phone_logger_legacy.stat.exists | default(false)

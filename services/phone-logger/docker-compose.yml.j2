@@ -1,0 +1,19 @@
+name: phone-logger
+
+services:
+  phone-logger:
+    image: "{{ item.image }}"
+    container_name: phone-logger
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PHONE_LOGGER_DATA_DIR=/app/data
+      - TZ={{ timezone }}
+    volumes:
+      - "{{ config_root }}/phone-logger/data:/app/data"
+{% set use_vpn = item.use_vpn | default(false) %}
+{% set host_port = item.port %}
+{% set internal_port = item.port %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+
+{% include "_network_footer.yml.j2" %}

@@ -1,0 +1,39 @@
+name: audiobookbay-automated
+
+services:
+  audiobookbay-automated:
+    image: "{{ item.image }}"
+    container_name: audiobookbay-automated
+    environment:
+      - TZ="{{ timezone }}"
+      - DOWNLOAD_CLIENT=qbittorrent
+      - DL_SCHEME=http
+      # qBittorrent shares gluetun's network namespace (use_vpn: true), so
+      # other containers reach its WebUI through gluetun, not via the
+      # qbittorrent service name. Same address Servarr uses — see
+      # roles/service_manager/tasks/api_wiring.yml download-client block.
+      - DL_HOST=gluetun
+      - DL_PORT=6969
+      - DL_USERNAME=admin
+      - DL_PASSWORD={{ admin_password }}
+      - DL_CATEGORY=audiobooks
+      # qBittorrent's view of the path. qBittorrent mounts data_root → /data,
+      # so this lands books under data_root/media/audiobooks where
+      # Audiobookshelf already scans. Side effect: torrents seed *from* the
+      # library directory; "delete with files" in qBittorrent will also
+      # remove the book from ABS.
+      - SAVE_PATH_BASE=/data/media/audiobooks
+      # AudioBookBay rotates TLDs as old domains get blocked / expire. As of
+      # 2026-04-30, audiobookbay.is's cert was expired (Dec 2025) and the
+      # upstream tool's default landed on .lu. If search starts returning
+      # zero results, first re-check live cert status of this host vs.
+      # other known mirrors (.fi, .lu) before assuming a parser break.
+      - ABB_HOSTNAME=audiobookbay.lu
+      - FLASK_PORT={{ item.port }}
+{% set use_vpn = item.use_vpn | default(false) %}
+{% set host_port = item.port %}
+{% set internal_port = item.port %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+
+{% include "_network_footer.yml.j2" %}

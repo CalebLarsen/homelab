@@ -87,16 +87,6 @@
   when: cloudflared_tunnel_exists.rc != 0
   changed_when: "'Successfully' in cloudflared_dns_route_root.stdout"
 
-- name: Route Public Services to Tunnel
-  ansible.builtin.command: "cloudflared tunnel route dns {{ cloudflare.tunnel_name }} \"{{ item.subdomain }}.{{ cloudflare.domain }}\""
-  delegate_to: localhost
-  become: false
-  loop: "{{ services | selectattr('public', 'defined') | selectattr('public', 'equalto', true) | rejectattr('subdomain', 'equalto', '@') | list }}"
-  register: cloudflared_cf_route_res
-  # Existing CNAMEs cause non-zero exit; changed_when flags genuine additions.
-  failed_when: false
-  changed_when: "'Added CNAME' in cloudflared_cf_route_res.stdout"
-
 - name: Read local credentials file
   ansible.builtin.command: "cat {{ lookup('env', 'HOME') }}/.cloudflared/{{ cloudflared_tunnel_id.stdout }}.json"
   delegate_to: localhost

@@ -12,6 +12,7 @@ services:
       - "{{ config_root }}/caddy/Caddyfile:/etc/caddy/Caddyfile"
       - "{{ config_root }}/caddy/data:/data"
       - "{{ config_root }}/caddy/config:/config"
+      - "{{ config_root }}/caddy/logs:/var/log/caddy"
       - "{{ storage.site_root }}:/var/www/html:ro"
     networks:
       - "{{ docker_network }}"

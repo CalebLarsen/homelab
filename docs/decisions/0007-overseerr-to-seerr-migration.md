@@ -37,9 +37,9 @@ Reading https://docs.seerr.dev/migration-guide on 2026-04-26 confirmed:
 We chose to keep the inventory service name `overseerr` (and therefore
 `request.caleb.trade`, the appdata path `/home/caleb/config/overseerr`,
 and the compose project name) to keep the migration small. Renaming to
-`seerr` is a follow-up change if/when desired — it would require a
-matching `cloudflared tunnel route dns` per decisions/0004 plus an
-appdata move.
+`seerr` is a follow-up change if/when desired — it would require an
+appdata move (DNS is handled by the wildcard CNAME, decision 0004, so
+the new subdomain would resolve automatically).
 
 ## Migration steps (as performed 2026-04-26)
 
@@ -119,5 +119,3 @@ than maintain a fork.
   `368194e7` is the rollback path.
 - **Broken Sonarr/Radarr/Plex wiring** if `api_wiring.yml`'s endpoints
   point at routes Seerr renamed. Watch for silent skips after deploy.
-- **Public DNS gap** if a future inventory rename happens without a
-  matching cloudflared route refresh — see decision 0004.

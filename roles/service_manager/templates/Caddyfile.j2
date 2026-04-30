@@ -3,6 +3,13 @@
 }
 
 http://{{ cloudflare.domain }} {
+    log {
+        output file /var/log/caddy/apex.log {
+            roll_size 100MiB
+            roll_keep 10
+        }
+        format json
+    }
     root * /var/www/html
     file_server
 }
@@ -10,11 +17,31 @@ http://{{ cloudflare.domain }} {
 # Static site checked out by roles/notes; no backend container, so it is not
 # driven by the services list and is hard-coded here.
 http://note.{{ cloudflare.domain }} {
+    log {
+        output file /var/log/caddy/note.log {
+            roll_size 100MiB
+            roll_keep 10
+        }
+        format json
+    }
     root * /var/www/html/note
     file_server
 }
 
 http:// {
+{% for service in services if service.public | default(false) %}
+    {% if service.subdomain != "@" %}
+    log {{ service.name }} {
+        hostnames {{ service.subdomain }}.{{ cloudflare.domain }}
+        output file /var/log/caddy/{{ service.name }}.log {
+            roll_size 100MiB
+            roll_keep 10
+        }
+        format json
+    }
+    {% endif %}
+{% endfor %}
+
 {% for service in services if service.public | default(false) %}
     {% if service.subdomain != "@" %}
     @{{ service.name }} host {{ service.subdomain }}.{{ cloudflare.domain }}

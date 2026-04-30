@@ -69,12 +69,23 @@ with Jellyseerr. Migration was performed 2026-04-26 (see
 db.sqlite3 were auto-migrated in place by Seerr on first boot. Container
 config path is `/app/config` (was `/config` on the LSIO image).
 
+## Locally built (no upstream image)
+
+Services in this section are built from source on the host at deploy
+time, from a public repo we own. They are exempt from the
+`tag@sha256:` pinning rule (decision 0006) because reproducibility
+comes from git instead of a registry; see decision 0010.
+
+| Service | Source repo | What it does | Notes |
+| --- | --- | --- | --- |
+| phone-logger | https://github.com/CalebLarsen/phone-logger | Flask service; accepts POSTs of phone usage events, health metrics, and meal photos and writes them to CSV / disk under `{{ config_root }}/phone-logger/data` | No auth; intended for private-network use only. Tracks `main`. Source is also the canonical doc — read its README. |
+
 ## Reverse proxy / network edge
 
 | Service | Image | Upstream project / repo | Config reference | Docker image docs |
 | --- | --- | --- | --- | --- |
 | caddy | `caddy:latest` | https://caddyserver.com/ | Caddyfile: https://caddyserver.com/docs/caddyfile — JSON: https://caddyserver.com/docs/json/ — Modules: https://caddyserver.com/docs/modules/ | https://hub.docker.com/_/caddy |
-| cloudflared | (host-installed via the `cloudflared` role, not a container) | https://github.com/cloudflare/cloudflared | https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/ — `cloudflared tunnel route dns` is per-hostname; see `decisions/0004-cloudflared-per-hostname-dns.md` | (n/a — host install) |
+| cloudflared | (host-installed via the `cloudflared` role, not a container) | https://github.com/cloudflare/cloudflared | https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/ — DNS is a single proxied wildcard CNAME; see `decisions/0004-cloudflared-wildcard-dns.md` | (n/a — host install) |
 
 ## How to use this file
 
