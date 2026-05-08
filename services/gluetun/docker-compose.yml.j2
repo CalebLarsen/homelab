@@ -13,20 +13,28 @@ services:
       - VPN_TYPE="wireguard"
       - WIREGUARD_PRIVATE_KEY="{{ vpn_secret.private_key }}"
       - WIREGUARD_ADDRESSES="{{ vpn_secret.addresses }}"
-      - SERVER_CITIES="{{ vpn_public.server_cities }}"
-      - FIREWALL_OUTBOUND_SUBNETS="192.168.0.0/16,172.16.0.0/12,10.0.0.0/8,100.64.0.0/10"
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_UP_COMMAND=/scripts/qbittorrent-port-update.sh {{ '{{PORT}}' }}
+      # Used by the up-command script to log into qBittorrent's WebUI for
+      # the setPreferences POST — qBittorrent 5.x's CSRF check 403's POSTs
+      # without a valid SID cookie even with LocalHostAuthentication=false.
+      - QBITTORRENT_USER=admin
+      - QBITTORRENT_PASSWORD={{ admin_password }}
+      # 10.0.0.0/8 is intentionally NOT here: ProtonVPN's in-tunnel NAT-PMP
+      # gateway is at 10.2.0.1, and bypassing 10.0.0.0/8 routes those packets
+      # via the docker bridge instead of tun0, breaking port forwarding. If
+      # you ever need to reach a 10.x.x.x host without going through the VPN,
+      # add a more-specific CIDR (e.g. 10.42.0.0/16) — not the whole /8.
+      - FIREWALL_OUTBOUND_SUBNETS="192.168.0.0/16,172.16.0.0/12,100.64.0.0/10"
       - TZ="{{ timezone }}"
       - DNS_ADDRESS=127.0.0.11
     volumes:
       - "{{ config_root }}/gluetun:/gluetun"
+      - "{{ config_root }}/gluetun/scripts/qbittorrent-port-update.sh:/scripts/qbittorrent-port-update.sh:ro"
     ports:
       - "8000:8000"
 {% for service in services if service.use_vpn | default(false) %}
       - "{{ service.port }}:{{ service.port }}"
-{% if service.torrent_port is defined %}
-      - "{{ service.torrent_port }}:{{ service.torrent_port }}"
-      - "{{ service.torrent_port }}:{{ service.torrent_port }}/udp"
-{% endif %}
 {% endfor %}
     networks:
       - "{{ docker_network }}"

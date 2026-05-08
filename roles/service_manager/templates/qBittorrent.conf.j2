@@ -3,6 +3,12 @@ ExcludedFileNamesEnabled=true
 Session\AdditionalTrackers={{ service_manager_qbittorrent_trackers | join('\\n') }}
 Session\AddTrackersEnabled=true
 Session\ExcludedFileNames={{ qbittorrent.excluded_file_names | join(', ') }}
+# Must be false — gluetun's NAT-PMP-forwarded port is dynamic, and the
+# VPN_PORT_FORWARDING_UP_COMMAND hook pushes it via the WebUI API. With
+# UseRandomPort=true, qBittorrent picks a random port at boot AND silently
+# ignores listen_port updates from the API. Disable so the hook is
+# authoritative. See roles/service_manager/files/gluetun-qbittorrent-port-update.sh.
+Session\UseRandomPort=false
 
 [LegalNotice]
 Accepted=true

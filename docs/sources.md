@@ -33,7 +33,7 @@ cross-cutting topics (custom formats, quality profiles, naming).
 | Service | Image | Upstream project / repo | API / config reference | Docker image docs |
 | --- | --- | --- | --- | --- |
 | qbittorrent | `lscr.io/linuxserver/qbittorrent:latest` | https://www.qbittorrent.org/ | WebUI API: https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-5.0) — Settings: https://github.com/qbittorrent/qBittorrent/wiki/Explanation-of-Options-in-qBittorrent | https://docs.linuxserver.io/images/docker-qbittorrent/ |
-| gluetun | `qmcgaw/gluetun:latest` | https://github.com/qdm12/gluetun | Wiki: https://github.com/qdm12/gluetun-wiki — Mullvad: https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/mullvad.md | (no separate image docs; wiki covers Docker usage) |
+| gluetun | `qmcgaw/gluetun:latest` | https://github.com/qdm12/gluetun | Wiki: https://github.com/qdm12/gluetun-wiki — ProtonVPN: https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/protonvpn.md — Port forwarding: https://github.com/qdm12/gluetun-wiki/blob/main/setup/advanced/vpn-port-forwarding.md | (no separate image docs; wiki covers Docker usage) |
 | flaresolverr | `ghcr.io/flaresolverr/flaresolverr:latest` | https://github.com/FlareSolverr/FlareSolverr | README is canonical: https://github.com/FlareSolverr/FlareSolverr#readme (env vars + API endpoints) | (none separate) |
 | cross-seed | `ghcr.io/cross-seed/cross-seed:latest` | https://www.cross-seed.org/ | Options reference: https://www.cross-seed.org/docs/basics/options — Getting started: https://www.cross-seed.org/docs/basics/getting-started | (none separate; site covers Docker) |
 

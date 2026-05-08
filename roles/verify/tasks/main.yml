@@ -5,12 +5,17 @@
 # repo declared in their `source_repo`. See decisions/0010.
 - name: Verify all service images are pinned to a digest
   ansible.builtin.assert:
-    that: "'@sha256:' in item.image"
-    fail_msg: "Service '{{ item.name }}' uses an unpinned image: {{ item.image }} — see docs/decisions/0006-pinned-image-digests.md"
-  loop: "{{ services }}"
-  loop_control:
-    label: "{{ item.name }}"
-  when: "not (item.build_local | default(false))"
+    that: _unpinned | length == 0
+    fail_msg: |-
+      Unpinned service images — see docs/decisions/0006-pinned-image-digests.md:
+      {% for s in _unpinned %}  - {{ s.name }}: {{ s.image }}
+      {% endfor %}
+  vars:
+    _unpinned: >-
+      {{ services
+         | rejectattr('build_local', 'defined')
+         | rejectattr('image', 'search', '@sha256:')
+         | list }}
 
 # Query /proc/mounts directly via the live kernel — ansible_facts.mounts is
 # captured at play start and does not refresh when the mergerfs role mounts
@@ -110,6 +115,85 @@
       when:
         - "verify_vpn_geo is defined"
         - "verify_vpn_geo.ip == verify_host_ip.content | trim"
+
+    # --- ADR 0011: gluetun must obtain a forwarded port from the VPN, or
+    # qBittorrent is firewalled (outbound works, inbound peers can't reach
+    # it, seeding stalls). Retries because NAT-PMP negotiation lags
+    # gluetun's "healthy" state by a few seconds on a fresh tunnel.
+    - name: Read VPN forwarded port from gluetun
+      ansible.builtin.command: docker exec gluetun cat /tmp/gluetun/forwarded_port
+      register: verify_vpn_pf
+      changed_when: false
+      retries: 6
+      delay: 5
+      until: verify_vpn_pf.rc == 0 and verify_vpn_pf.stdout is regex('^[0-9]+$')
+      failed_when: false  # the assert below produces a clearer message
+
+    - name: Verify VPN forwarded port is a valid number
+      ansible.builtin.assert:
+        that:
+          - verify_vpn_pf.rc == 0
+          - verify_vpn_pf.stdout is regex('^[0-9]+$')
+        fail_msg: |
+          gluetun did not obtain a forwarded port. Without it, qBittorrent
+          is firewalled — inbound peers cannot reach it and seeding stalls.
+          Most common cause: FIREWALL_OUTBOUND_SUBNETS captures the VPN's
+          in-tunnel NAT-PMP gateway (e.g. 10.0.0.0/8 swallows ProtonVPN's
+          10.2.0.1). See docs/decisions/0011.
+          Other suspects: NAT-PMP toggle missing on the WireGuard config in
+          the provider portal, account tier without PF, stale gluetun image.
+          Diagnose: docker logs gluetun 2>&1 | grep -E "port forwarding"
+          Live: rc={{ verify_vpn_pf.rc }} stdout='{{ verify_vpn_pf.stdout }}'
+
+    # --- The forwarded_port file existing isn't enough — qBittorrent must
+    # actually rebind to that port. Two ways the hook can silently fail:
+    #   (1) Session\UseRandomPort=true → qBittorrent ignores the API
+    #       setPreferences call, stays on a random boot-time port.
+    #   (2) qBittorrent 5.x's CSRF check 403's the POST without a SID
+    #       cookie, so the hook never lands.
+    # Either way, gluetun forwards 61292 → no listener → seeding silently
+    # broken behind a green globe. Assert the actual netstat binding.
+    - name: Verify qBittorrent is bound to the VPN-forwarded port
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec qbittorrent netstat -ltn \
+          | grep -E ':{{ verify_vpn_pf.stdout }}([[:space:]]|$)' >/dev/null
+      args:
+        executable: /bin/bash
+      register: verify_qbt_port_bind
+      changed_when: false
+      retries: 6
+      delay: 5
+      until: verify_qbt_port_bind.rc == 0
+      failed_when: false
+      when:
+        - "'qbittorrent' in services | map(attribute='name') | list"
+        - verify_vpn_pf.stdout is defined
+        - verify_vpn_pf.stdout is regex('^[0-9]+$')
+
+    - name: Assert qBittorrent listen port matches gluetun forwarded port
+      ansible.builtin.assert:
+        that:
+          - verify_qbt_port_bind.rc == 0
+        fail_msg: |
+          qBittorrent is not listening on gluetun's forwarded port
+          ({{ verify_vpn_pf.stdout }}). Inbound peers can't reach it and
+          seeding stalls — even when the qBittorrent WebUI globe is green.
+          Likely causes:
+            - Session\UseRandomPort flipped back to true in qBittorrent.conf
+              (must be false for the up-command hook to be authoritative)
+            - The up-command's setPreferences POST 403'd because the login
+              flow failed (check QBITTORRENT_PASSWORD env on gluetun, and
+              `docker logs gluetun 2>&1 | grep "listen_port set"` should
+              show a successful set on each gluetun reconnect)
+          Diagnose:
+            docker exec qbittorrent netstat -ltn | grep tcp
+            docker logs gluetun 2>&1 | grep -E "listen_port|port forwarding"
+      when:
+        - "'qbittorrent' in services | map(attribute='name') | list"
+        - verify_vpn_pf.stdout is defined
+        - verify_vpn_pf.stdout is regex('^[0-9]+$')
+
 - name: Verify MergerFS is writable
   ansible.builtin.file:
     path: "{{ storage.pool_path }}/.ansible_verify_write"

@@ -11,8 +11,7 @@ config_root: "/home/caleb/config"
 mergerfs_version: "2.41.1"
 
 vpn_public:
-  provider: "mullvad"
-  server_cities: "Stockholm"
+  provider: "protonvpn"
 
 # Host-level scripts and cron jobs managed by the host_cron role. Scripts
 # live at roles/host_cron/files/<name> in the repo and get deployed to
@@ -34,6 +33,7 @@ host_cron_jobs:
 cloudflare:
   tunnel_name: "homelab"
   domain: "caleb.trade"
+  zone_id: b370d1355b658ddb46a639509880c9c6
 
 # Local restic backup. Target is the 7.3TB external (seagate). The
 # passphrase lives in secrets.sops.yml as `restic_password` — without it
@@ -67,9 +67,14 @@ services:
   - name: gluetun
     port: 8888 # internal control port; not exposed
     # qmcgaw/gluetun does not set a meaningful version label (only `latest`).
-    # To bump: `docker exec gluetun /gluetun-entrypoint version` or check
-    # github.com/qdm12/gluetun releases for the digest you want.
-    image: "qmcgaw/gluetun@sha256:183c74263a07f4c931979140ac99ff4fbc44dcb1ca5b055856ef580b0fafdf1c"
+    # To check the running version, read the startup banner:
+    #   docker logs gluetun 2>&1 | head -20
+    # ("Running version latest built on <date> (commit <hash>)").
+    # To bump: `docker pull qmcgaw/gluetun:latest` on the homelab, then
+    # `docker image inspect qmcgaw/gluetun:latest --format '{{index .RepoDigests 0}}'`
+    # to get the digest. Bumped 2026-05-08 from the 2025-01-22 build to refresh
+    # the bundled Proton servers.json after migrating off Mullvad.
+    image: "qmcgaw/gluetun@sha256:0d60fc67b2847ffb9b3ec2b42a4f5523c38e0e464974e71a640e8dcf0a52a0ee"
   - name: sonarr
     port: 8989
     image: "lscr.io/linuxserver/sonarr:4.0.14.2939-ls282@sha256:bae1b72ad55cee030a416aaaef1f20eee076e4c1c6d490689904d4609a2cabac"
@@ -82,7 +87,6 @@ services:
     image: "lscr.io/linuxserver/prowlarr:1.35.1.5034-ls117@sha256:dec1e580aad36bccaeb1aba283f01a5263761905c304875a603c9a952ecfda79"
   - name: qbittorrent
     port: 6969
-    torrent_port: 8694
     use_vpn: true
     image: "lscr.io/linuxserver/qbittorrent:5.1.0-r0-ls393@sha256:eb16ef40b8ba2b6287184a8961d00c50abb99b3782365df70b63671d5c3504d8"
   - name: flaresolverr

@@ -1,2 +1,19 @@
 ---
-# No per-service pre-deploy configuration needed.
+- name: Ensure gluetun scripts directory exists on host
+  ansible.builtin.file:
+    path: "{{ config_root }}/gluetun/scripts"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+
+# Mounted into the gluetun container and called by
+# VPN_PORT_FORWARDING_UP_COMMAND on each session start to push the
+# dynamically-assigned forwarded port into qBittorrent's listening port.
+- name: Deploy gluetun port-update script
+  ansible.builtin.copy:
+    src: gluetun-qbittorrent-port-update.sh
+    dest: "{{ config_root }}/gluetun/scripts/qbittorrent-port-update.sh"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
