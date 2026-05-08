@@ -1,0 +1,23 @@
+---
+# CF caches static assets (.css, .js, images) at the edge by default for
+# ~2h, so a fresh push is invisible to clients until the TTL expires. Purge
+# the whole zone after a checkout that actually changed — `note` is the
+# only hostname behind the orange cloud that benefits from CF caching, so
+# whole-zone purge is fine. Delegated to the controller because the API is
+# external and we don't need the token to land in the homelab's process
+# memory. no_log: true hides the bearer token in `invocation.module_args`.
+# API: https://developers.cloudflare.com/api/resources/cache/methods/purge/
+- name: Purge Cloudflare zone cache
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare.zone_id }}/purge_cache"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cloudflare_secret.purge_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      purge_everything: true
+    status_code: 200
+  delegate_to: localhost
+  become: false
+  no_log: true

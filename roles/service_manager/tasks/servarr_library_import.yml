@@ -60,12 +60,24 @@
            if servarr.name == 'sonarr'
            else {'searchForMovie': false, 'monitor': 'movieOnly'} }}
 
+# Looping `debug` directly over `service_manager_lookups.results` dumps the
+# full URI response (including every candidate's metadata, posters, overviews)
+# per skipped folder. Compute the skipped-name list with a single Jinja pass
+# and emit one summary line instead.
 - name: "Report skipped folders for {{ servarr.name }}"
   ansible.builtin.debug:
-    msg: "Skipped '{{ _res.folder.name }}' — no close title match in lookup results. Import by hand in the UI if this is intentional."
-  loop: "{{ service_manager_lookups.results }}"
-  loop_control:
-    loop_var: _res
-    label: "{{ _res.folder.name }}"
-  when:
-    - _res.json | length == 0 or (_res.json[0].title | lower) != (_res.folder.name | regex_replace(' \(\d{4}\)$', '') | lower)
+    msg: |-
+      Skipped {{ _skipped | length }} folder(s) — no close title match. Import by hand in the UI if intentional:
+      {% for n in _skipped %}  - {{ n }}
+      {% endfor %}
+  vars:
+    _skipped_json: |-
+      {%- set acc = [] -%}
+      {%- for r in service_manager_lookups.results -%}
+      {%-   if r.json | length == 0 or (r.json[0].title | lower) != (r.folder.name | regex_replace(' \(\d{4}\)$', '') | lower) -%}
+      {%-     set _ = acc.append(r.folder.name) -%}
+      {%-   endif -%}
+      {%- endfor -%}
+      {{ acc | to_json }}
+    _skipped: "{{ _skipped_json | from_json }}"
+  when: _skipped | length > 0

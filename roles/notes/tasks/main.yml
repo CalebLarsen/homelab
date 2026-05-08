@@ -1,18 +1,20 @@
 ---
 # Static site served by Caddy at note.caleb.trade. The vhost block lives in
-# roles/service_manager/templates/Caddyfile.j2; this role just keeps the
-# checkout in sync with notes_version.
+# roles/service_manager/templates/Caddyfile.j2; this role just tracks the
+# default branch of notes_repo (Caleb owns the source, so a SHA pin would
+# add friction without buying reproducibility) and busts the Cloudflare
+# edge cache when the checkout actually moves.
 
 - name: Ensure git is installed
   ansible.builtin.apt:
     name: git
     state: present
 
-- name: Clone notes repo at pinned version
+- name: Clone or update notes repo  # noqa: latest[git]  # tracking the default branch is intentional — see file header
   ansible.builtin.git:
     repo: "{{ notes_repo }}"
     dest: "{{ notes_dest }}"
-    version: "{{ notes_version }}"
     force: true
   become_user: "{{ ansible_user }}"
   become: true
+  notify: Purge Cloudflare zone cache
