@@ -95,6 +95,22 @@ Send the user the Overseerr request URL (typically
 `https://request.<your-domain>`) and tell them to log in with **"Sign in
 with Plex"**. Their permissions are already set; no further config needed.
 
+## Step 5 — Restrict Visibility (Optional)
+
+If you want the guest to *only* see content they have requested (a private
+"Netflix-like" experience), follow these steps:
+
+1. In Plex Web UI, go to **Settings → Manage Library Access**.
+2. Click on the user's name.
+3. In the **Restrictions** tab, locate the **Labels** field for the shared
+   libraries.
+4. Add the same `label` string you used in `secrets.sops.yml` (e.g., `guest`).
+5. Save changes.
+
+Now, any content they request via Overseerr will automatically be tagged in
+Sonarr/Radarr, synced to Plex as a Label by Kometa, and become visible to
+the guest. Everything else in your library will remain hidden from them.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
@@ -103,3 +119,4 @@ with Plex"**. Their permissions are already set; no further config needed.
 | "No requests permission" in Overseerr UI | `permissions:` value is too restrictive; bump to `48` (movies + TV) or `2` (admin) |
 | User can request but content never imports | Sonarr/Radarr root folders or quality profile not set — check the deploy verify output |
 | Kometa labels not applied | `label:` missing from the user entry, or Kometa hasn't run since you added it (it's a once-per-deploy run) |
+| User sees nothing in Plex | Labels not correctly set in Plex UI Restrictions, or Kometa hasn't run to apply the labels yet |
