@@ -41,7 +41,22 @@
     project_src: services/caddy
     state: restarted
 
+- name: Restart discord-bridge
+  community.docker.docker_compose_v2:
+    project_src: services/discord-bridge
+    state: restarted
+
 - name: Restart cross-seed
   community.docker.docker_compose_v2:
     project_src: services/cross-seed
+    state: restarted
+
+- name: Restart webhook
+  community.docker.docker_compose_v2:
+    project_src: services/webhook
+    state: restarted
+
+- name: Restart kometa
+  community.docker.docker_compose_v2:
+    project_src: services/kometa
     state: restarted

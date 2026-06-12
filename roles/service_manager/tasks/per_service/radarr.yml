@@ -1,4 +1,20 @@
 ---
+- name: Ensure Radarr scripts directory exists
+  ansible.builtin.file:
+    path: "{{ config_root }}/scripts"
+    state: directory
+    mode: '0755'
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+
+- name: Deploy Kometa trigger script
+  ansible.builtin.copy:
+    src: trigger-kometa.sh
+    dest: "{{ config_root }}/scripts/trigger-kometa.sh"
+    mode: '0755'
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+
 - name: Template Radarr config.xml
   ansible.builtin.template:
     src: config.xml.j2

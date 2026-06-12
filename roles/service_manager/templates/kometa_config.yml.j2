@@ -5,7 +5,7 @@ libraries:
       label:
 {% for user in overseerr_secret.users if user.label is defined %}
         - name: {{ user.label }}
-          radarr_tag: {{ user.label }}
+          radarr_tag: {{ (service_manager_user_tags | default({}))[user.label] | default([user.label]) | join(', ') }}
 {% endfor %}
   TV Shows:
     remove_overlays: false
@@ -13,7 +13,7 @@ libraries:
       label:
 {% for user in overseerr_secret.users if user.label is defined %}
         - name: {{ user.label }}
-          sonarr_tag: {{ user.label }}
+          sonarr_tag: {{ (service_manager_user_tags | default({}))[user.label] | default([user.label]) | join(', ') }}
 {% endfor %}
 
 settings:

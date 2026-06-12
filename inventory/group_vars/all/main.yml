@@ -148,6 +148,9 @@ services:
   - name: uptime-kuma
     port: 3001
     image: "louislam/uptime-kuma:2.2.1@sha256:7337368a77873f159435de9ef09567f68c31285ed5f951dec36256c4b267ee44"
+  - name: discord-bridge
+    port: 9000
+    image: "python:3.12-alpine@sha256:6f22019c4ced1e4ee3965efe87ccae4d26213d73735c5558b62a66e75db33055"
   - name: phone-logger
     port: 5001
     # Locally built from a separate public repo; no registry digest. Source
