@@ -48,6 +48,6 @@ repos:
       - id: sops-encrypted
         name: SOPS files must be encrypted
         description: Refuse to commit a *.sops.yml that lacks a sops metadata block.
-        entry: scripts/check-sops-encrypted.sh
-        language: script
+        entry: scripts/check-sops-encrypted.py
+        language: python
         files: '[^/]\.sops\.ya?ml$'

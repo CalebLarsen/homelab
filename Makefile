@@ -1,13 +1,24 @@
 .DEFAULT_GOAL := deploy
-.PHONY: deploy clean edit-secrets _init check new-service lint verify-local
+.PHONY: deploy clean edit-secrets _init check new-service lint verify-local deps
 
-check:
+# Extract remote IP from inventory
+REMOTE_IP := $(shell grep ansible_host inventory/hosts.yml | awk '{print $$2}')
+
+deps:
+	@echo "==> Installing Ansible dependencies..."
+	@ansible-galaxy install -r requirements.yml
+	@if [ ! -d roles/mitogen ]; then \
+		echo "==> Installing Mitogen..."; \
+		git clone --depth 1 --branch v0.3.49 https://github.com/mitogen-hq/mitogen.git roles/mitogen; \
+	fi
+
+check: deps
 	ansible-playbook site.yml --syntax-check
 
 # Run every pre-commit hook against every tracked file. Use before pushing
 # if you've been bypassing hooks. Slower than commit-time hooks because
 # nothing is cached against the index.
-lint:
+lint: deps
 	pre-commit run --all-files
 
 # "Poor-man's CI" — what cloud CI would run, but local. Lint, syntax-check,
@@ -17,20 +28,27 @@ verify-local: lint check
 	ansible-playbook site.yml --check --diff
 
 clean:
+	@echo "==> Cleaning homelab state..."
 	ansible-playbook clean.yml
 
 # Scaffold a new service. Pass NAME and PORT (and optionally INTERNAL_PORT,
-# IMAGE, USE_VPN). Example:
+# IMAGE, USE_VPN, GROUP). Example:
 #   make new-service NAME=anki PORT=8765
-#   make new-service NAME=jellyfin PORT=8096 IMAGE=jellyfin/jellyfin:latest
 new-service:
-	@scripts/new-service.sh NAME="$(NAME)" PORT="$(PORT)" \
-	  $(if $(INTERNAL_PORT),INTERNAL_PORT="$(INTERNAL_PORT)") \
-	  $(if $(IMAGE),IMAGE="$(IMAGE)") \
-	  $(if $(USE_VPN),USE_VPN="$(USE_VPN)")
+	@python3 scripts/new-service.py "$(NAME)" "$(PORT)" \
+	  $(if $(INTERNAL_PORT),--internal-port "$(INTERNAL_PORT)") \
+	  $(if $(IMAGE),--image "$(IMAGE)") \
+	  $(if $(USE_VPN),--use-vpn) \
+	  $(if $(GROUP),--group "$(GROUP)")
+
+# Run Molecule tests for a specific role. Pass ROLE. Example:
+#   make test-role ROLE=host_cron
+test-role: deps
+	@echo "==> Testing role: $(ROLE) (using remote Docker host: $(REMOTE_IP))"
+	@cd roles/$(ROLE) && DOCKER_HOST="ssh://caleb@$(REMOTE_IP)" molecule test
 
 # Internal task to ensure Age key and .sops.yaml are ready
-_init:
+_init: deps
 	@mkdir -p ~/.config/sops/age
 	@if [ ! -f ~/.config/sops/age/keys.txt ]; then \
 		echo "Generating new Age key..."; \

@@ -1,20 +1,11 @@
-  phone-logger:
-    image: "{{ service_config.image }}"
-    container_name: phone-logger
-    environment:
-      - PYTHONUNBUFFERED=1
-      - PHONE_LOGGER_DATA_DIR=/app/data
-      - TZ={{ timezone }}
-    volumes:
-      - "{{ config_root }}/phone-logger/data:/app/data"
-{% set use_vpn = service_config.use_vpn | default(false) %}
-{% set host_port = service_config.port %}
-{% set internal_port = service_config.port %}
-{% include "_service_network.yml.j2" %}
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import http.client; conn = http.client.HTTPConnection('127.0.0.1', {{ service_config.port }}); conn.request('GET', '/health'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+{% from "service_base.yml.j2" import standard_service with context %}
+{{ standard_service(
+    name="phone-logger",
+    internal_port=service_config.port,
+    env=[
+        'PYTHONUNBUFFERED=1',
+        'PHONE_LOGGER_DATA_DIR=/app/data'
+    ],
+    volumes=[config_root ~ "/phone-logger/data:/app/data"],
+    healthcheck_cmd=["CMD", "python3", "-c", "import http.client; conn = http.client.HTTPConnection('127.0.0.1', " ~ service_config.port ~ "); conn.request('GET', '/health'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)"]
+) }}

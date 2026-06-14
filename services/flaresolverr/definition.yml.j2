@@ -1,19 +1,11 @@
-  flaresolverr:
-    image: "{{ service_config.image }}"
-    container_name: flaresolverr
-{% set use_vpn = service_config.use_vpn | default(false) %}
-{% set host_port = service_config.port %}
-{% set internal_port = 8191 %}
-{% include "_service_network.yml.j2" %}
-    environment:
-      - LOG_LEVEL=info
-      - LOG_HTML=false
-      - CAPTCHA_SOLVER=none
-      - TZ="{{ timezone }}"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8191); conn.request('GET', '/'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+{% from "service_base.yml.j2" import standard_service with context %}
+{{ standard_service(
+    name="flaresolverr",
+    internal_port=8191,
+    env=[
+        'LOG_LEVEL=info',
+        'LOG_HTML=false',
+        'CAPTCHA_SOLVER=none'
+    ],
+    healthcheck_cmd=["CMD", "python3", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8191); conn.request('GET', '/'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)"]
+) }}

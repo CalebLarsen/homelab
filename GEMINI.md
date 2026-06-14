@@ -6,6 +6,14 @@
 
 ## Testing & Validation
 - **Molecule**: Isolated role testing is configured using Molecule with the Docker driver.
-  - **Prerequisites**: Requires local Docker and `molecule` installed via pip.
-  - **Usage**: Navigate to a role (e.g., `roles/host_cron`) and run `molecule test`.
+  - **Remote Testing**: To align with the "Remote Docker Only" mandate, Molecule can be configured to use the homelab host as its Docker backend.
+  - **Usage**:
+    ```bash
+    # Use the Makefile (recommended)
+    make test-role ROLE=host_cron
+
+    # OR manual: Set DOCKER_HOST to point to the remote homelab
+    export DOCKER_HOST="ssh://caleb@$(grep ansible_host inventory/hosts.yml | awk '{print $2}')"
+    cd roles/host_cron && molecule test
+    ```
   - **Coverage**: Initial Molecule support is implemented for `pre_flight` and `host_cron`.

@@ -4,7 +4,7 @@
 # and friends as `syntax-check[unknown-module]`).
 #
 # Install:
-#   ansible-galaxy collection install -r requirements.yml
+#   ansible-galaxy install -r requirements.yml
 collections:
   - name: community.docker
     version: ">=3.10.0"

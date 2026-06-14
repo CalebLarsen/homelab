@@ -12,27 +12,11 @@
       chown {{ puid }}:{{ pgid }} /config/*.db
       "
 
-  cleanuparr:
-    image: "{{ service_config.image }}"
-    container_name: cleanuparr
-    restart: unless-stopped
-    depends_on:
-      cleanuparr-init:
-        condition: service_completed_successfully
-    environment:
-      - PUID={{ puid }}
-      - PGID={{ pgid }}
-      - TZ={{ timezone }}
-      - PORT=11011
-    volumes:
-      - "{{ config_root }}/cleanuparr:/config"
-{% set use_vpn = service_config.use_vpn | default(false) %}
-{% set host_port = service_config.port %}
-{% set internal_port = 11011 %}
-{% include "_service_network.yml.j2" %}
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:11011/api/health || wget -qO- http://127.0.0.1:11011/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+{% from "service_base.yml.j2" import standard_service with context %}
+{{ standard_service(
+    name="cleanuparr",
+    internal_port=11011,
+    env=['PORT=11011'],
+    depends_on={'cleanuparr-init': 'service_completed_successfully'},
+    healthcheck_cmd=["CMD-SHELL", "wget -qO- http://127.0.0.1:11011/api/health || wget -qO- http://127.0.0.1:11011/ || exit 1"]
+) }}

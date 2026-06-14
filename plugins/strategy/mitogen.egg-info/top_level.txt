@@ -1,3 +1,0 @@
-ansible_mitogen
-mitogen
-tests

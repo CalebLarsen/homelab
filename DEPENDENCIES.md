@@ -25,7 +25,7 @@ To manage this homelab, your local computer needs the following tools installed.
 ```bash
 brew install ansible sops age cloudflare/cloudflare/cloudflared
 pip install netaddr pre-commit ansible-lint yamllint
-ansible-galaxy collection install -r requirements.yml
+ansible-galaxy install -r requirements.yml
 pre-commit install
 ```
 
@@ -34,6 +34,6 @@ pre-commit install
 sudo apt update && sudo apt install -p ansible sops age
 # Download cloudflared from https://github.com/cloudflare/cloudflared/releases
 pip install netaddr pre-commit ansible-lint yamllint
-ansible-galaxy collection install -r requirements.yml
+ansible-galaxy install -r requirements.yml
 pre-commit install
 ```

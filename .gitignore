@@ -2,6 +2,7 @@
 *.retry
 ansible.log
 .ansible/
+roles/mitogen/
 
 # Python
 __pycache__/

@@ -1,0 +1,40 @@
+{% macro standard_service(name, image=service_config.image, port=service_config.port, internal_port=None, use_vpn=None, volumes=None, env=None, depends_on=None, healthcheck_url=None, healthcheck_cmd=None) %}
+  {{ name }}:
+    image: "{{ image }}"
+    container_name: {{ name }}
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+{% if env %}
+{% for e in env %}
+      - {{ e }}
+{% endfor %}
+{% endif %}
+    volumes:
+{% if volumes %}
+{% for v in volumes %}
+      - "{{ v }}"
+{% endfor %}
+{% else %}
+      - "{{ config_root }}/{{ name }}:/config"
+{% endif %}
+{% set use_vpn = use_vpn if use_vpn is not none else service_config.use_vpn | default(false) %}
+{% set host_port = port %}
+{% set internal_port = internal_port or port or 80 %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+{% if depends_on %}
+    depends_on:
+{% for dep, condition in depends_on.items() %}
+      {{ dep }}:
+        condition: {{ condition }}
+{% endfor %}
+{% endif %}
+    healthcheck:
+      test: {{ healthcheck_cmd or ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", healthcheck_url or 'http://localhost:' ~ internal_port ~ '/'] }}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+{% endmacro %}
