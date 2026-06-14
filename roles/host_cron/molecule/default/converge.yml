@@ -1,0 +1,15 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    ansible_user: "root"
+    host_scripts:
+      - move_old_media.sh
+    host_cron_jobs:
+      - name: "Test Job"
+        minute: "0"
+        job: "/home/root/bin/move_old_media.sh"
+  tasks:
+    - name: "Include host_cron"
+      ansible.builtin.include_role:
+        name: "host_cron"

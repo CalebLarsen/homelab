@@ -1,0 +1,7 @@
+---
+- name: Verify
+  hosts: all
+  tasks:
+    - name: "Ensure pre_flight passed (implicit if this runs)"
+      ansible.builtin.debug:
+        msg: "Pre-flight checks verified."

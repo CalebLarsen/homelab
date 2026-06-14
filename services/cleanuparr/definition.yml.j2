@@ -1,7 +1,24 @@
+  cleanuparr-init:
+    image: "keinos/sqlite3:latest"
+    container_name: cleanuparr-init
+    user: "root"
+    volumes:
+      - "{{ config_root }}/cleanuparr:/config"
+    command: >
+      sh -c "
+      set -e;
+      sqlite3 /config/users.db < /config/inject_users.sql;
+      sqlite3 /config/cleanuparr.db < /config/inject_configs.sql;
+      chown {{ puid }}:{{ pgid }} /config/*.db
+      "
+
   cleanuparr:
     image: "{{ service_config.image }}"
     container_name: cleanuparr
     restart: unless-stopped
+    depends_on:
+      cleanuparr-init:
+        condition: service_completed_successfully
     environment:
       - PUID={{ puid }}
       - PGID={{ pgid }}
@@ -13,3 +30,9 @@
 {% set host_port = service_config.port %}
 {% set internal_port = 11011 %}
 {% include "_service_network.yml.j2" %}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:11011/api/health || wget -qO- http://127.0.0.1:11011/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

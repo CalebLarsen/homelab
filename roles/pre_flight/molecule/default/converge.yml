@@ -1,0 +1,26 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    # Mock variables for pre_flight verification
+    services:
+      - name: sonarr
+      - name: radarr
+    api_keys:
+      sonarr: "mock-sonarr-key"
+      radarr: "mock-radarr-key"
+      prowlarr: "mock-prowlarr-key"
+    admin_password: "mock-password"
+    vpn_secret:
+      private_key: "mock-vpn-key"
+      addresses: "10.0.0.1"
+    plex_secret:
+      online_token: "mock-plex-token"
+    overseerr_secret:
+      users:
+        - label: "Admin"
+          email: "admin@example.com"
+  tasks:
+    - name: "Include pre_flight"
+      ansible.builtin.include_role:
+        name: "pre_flight"

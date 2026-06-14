@@ -1,0 +1,21 @@
+---
+- name: Verify
+  hosts: all
+  tasks:
+    - name: Check if script was deployed
+      ansible.builtin.stat:
+        path: "/home/root/bin/move_old_media.sh"
+      register: host_cron_script_file
+
+    - name: Assert script exists
+      ansible.builtin.assert:
+        that: host_cron_script_file.stat.exists
+
+    - name: Check if cron job was installed
+      ansible.builtin.command: crontab -l
+      register: host_cron_crontab_output
+      changed_when: false
+
+    - name: Assert cron job in output
+      ansible.builtin.assert:
+        that: "'Test Job' in host_cron_crontab_output.stdout"

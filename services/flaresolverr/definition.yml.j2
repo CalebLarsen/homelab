@@ -12,7 +12,7 @@
       - TZ="{{ timezone }}"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8191/"]
+      test: ["CMD", "python3", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8191); conn.request('GET', '/'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 5

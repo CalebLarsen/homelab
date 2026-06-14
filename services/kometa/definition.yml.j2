@@ -10,3 +10,6 @@
     networks:
       - "{{ docker_network }}"
     restart: unless-stopped
+    depends_on:
+      plex:
+        condition: service_healthy

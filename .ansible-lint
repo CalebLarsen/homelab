@@ -15,6 +15,7 @@ exclude_paths:
   - inventory/group_vars/all/secrets.sops.yml # encrypted, not parseable
   - .claude/
   - docs/
+  - plugins/strategy/
 
 # Rules to skip globally. Each is a deliberate decision recorded so the
 # next reviewer can see the cost/benefit. We prefer per-task `# noqa`

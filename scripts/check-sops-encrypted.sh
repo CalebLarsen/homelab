@@ -1,29 +1,40 @@
 #!/usr/bin/env bash
-# Pre-commit guard: a file named *.sops.yml must contain a `sops:` metadata
-# block, which SOPS appends at the bottom of every encrypted file. A *.sops.yml
-# without that block is plaintext masquerading as encrypted — refuse to commit.
+# Hardened Pre-commit guard: validates that files matching *.sops.yml are
+# actually encrypted using the `sops filestatus` command.
 #
-# Note: the SOPS *rules* file `.sops.yaml` at the repo root is plaintext on
-# purpose — it only holds age public keys. The matching regex in
-# .pre-commit-config.yaml excludes it via a `[^/]` prefix that requires at
-# least one non-slash char before `.sops`, so `.sops.yaml` doesn't match
-# but `secrets.sops.yml` does. If somehow this script is invoked on the rules
-# file, refuse to act (defensive double-check).
+# A *.sops.yml without a valid sops metadata block is plaintext masquerading
+# as encrypted — refuse to commit.
 set -euo pipefail
+
+if ! command -v sops &> /dev/null; then
+  echo "ERROR: 'sops' is not installed or not in PATH. Cannot verify encryption status." >&2
+  exit 1
+fi
+
+if ! command -v jq &> /dev/null; then
+  echo "ERROR: 'jq' is not installed or not in PATH. Cannot verify encryption status." >&2
+  exit 1
+fi
 
 fail=0
 for f in "$@"; do
   if [[ ! -f "$f" ]]; then
     continue
   fi
-  # Defensive: the rules file `.sops.yaml` should never be checked here.
+
+  # Defensive: the rules file `.sops.yaml` or `.sops.yml` should never be checked here.
   if [[ "$(basename "$f")" == ".sops.yaml" || "$(basename "$f")" == ".sops.yml" ]]; then
     continue
   fi
-  if ! grep -q '^sops:' "$f"; then
-    echo "ERROR: $f looks unencrypted — no 'sops:' metadata block found." >&2
+
+  # Use sops filestatus for definitive check.
+  status=$(sops filestatus "$f")
+  encrypted=$(echo "$status" | jq -r '.encrypted')
+
+  if [[ "$encrypted" != "true" ]]; then
+    echo "ERROR: $f is NOT encrypted according to SOPS." >&2
     echo "  If you intentionally want plaintext, rename the file to drop .sops." >&2
-    echo "  To re-encrypt: sops -e -i $f" >&2
+    echo "  To encrypt: sops -e -i $f" >&2
     fail=1
   fi
 done

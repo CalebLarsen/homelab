@@ -3,11 +3,6 @@
   community.docker.docker_network:
     name: "{{ docker_network }}"
 
-- name: Install sqlite3 for database injection
-  ansible.builtin.apt:
-    name: sqlite3
-    state: present
-
 - name: Set API key facts
   ansible.builtin.set_fact:
     service_manager_sonarr_api_key: "{{ api_keys.sonarr }}"

@@ -12,3 +12,9 @@
 {% set internal_port = service_config.port %}
 {% include "_service_network.yml.j2" %}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import http.client; conn = http.client.HTTPConnection('127.0.0.1', {{ service_config.port }}); conn.request('GET', '/health'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

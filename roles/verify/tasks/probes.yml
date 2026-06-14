@@ -54,12 +54,20 @@
   register: verify_tunnel_status
   failed_when: verify_tunnel_status.status.ActiveState != 'active'
 
-- name: Verify Docker service health
+- name: Verify Docker service health (Running Services)
   ansible.builtin.command: "docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' {{ item.name }}"
-  loop: "{{ services | rejectattr('name', 'equalto', 'recyclarr') | list }}"
+  loop: "{{ services | rejectattr('name', 'in', ['recyclarr', 'seed-servarr']) | list }}"
   check_mode: false
-  register: verify_container_status
-  failed_when: "'running' not in verify_container_status.stdout"
+  register: verify_running_status
+  failed_when: "'running' not in verify_running_status.stdout"
   changed_when: false
-  # Ignore failures if containers haven't been created yet (first deploy logic)
-  ignore_errors: true
+
+- name: Verify Docker service health (One-shot Services)
+  ansible.builtin.command: "docker inspect -f '{% raw %}{{.State.Status}} {{.State.ExitCode}}{% endraw %}' {{ item.name }}"
+  loop: "{{ services | selectattr('name', 'in', ['recyclarr', 'seed-servarr']) | list }}"
+  check_mode: false
+  register: verify_oneshot_status
+  failed_when: >
+    (verify_oneshot_status.stdout.split(' ')[0] not in ['running', 'exited']) or
+    (verify_oneshot_status.stdout.split(' ')[0] == 'exited' and verify_oneshot_status.stdout.split(' ')[1] != '0')
+  changed_when: false

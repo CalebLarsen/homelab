@@ -1,0 +1,39 @@
+---
+- name: Verify required secrets are present
+  ansible.builtin.assert:
+    that:
+      - api_keys.sonarr is defined and api_keys.sonarr | length > 0
+      - api_keys.radarr is defined and api_keys.radarr | length > 0
+      - api_keys.prowlarr is defined and api_keys.prowlarr | length > 0
+      - admin_password is defined and admin_password | length > 0
+      - vpn_secret.private_key is defined and vpn_secret.private_key | length > 0
+      - vpn_secret.addresses is defined and vpn_secret.addresses | length > 0
+      - plex_secret.online_token is defined and plex_secret.online_token | length > 0
+    fail_msg: "One or more critical secrets are missing or empty. Check inventory/group_vars/all/secrets.sops.yml"
+    quiet: true
+
+- name: Verify Overseerr user configuration
+  ansible.builtin.assert:
+    that:
+      - overseerr_secret.users is defined
+      - overseerr_secret.users | type_debug == 'list'
+      - overseerr_secret.users | length > 0
+    fail_msg: "Overseerr user list is missing or invalid."
+    quiet: true
+
+- name: Verify Discord configuration (if used)
+  ansible.builtin.assert:
+    that:
+      - discord_secret.bot_token is defined and discord_secret.bot_token | length > 0
+    fail_msg: "Discord bot token is missing."
+    quiet: true
+  when: "'discord-bridge' in services | map(attribute='name') | list"
+
+- name: Verify Cleanuparr configuration (if used)
+  ansible.builtin.assert:
+    that:
+      - cleanuparr_secret.api_key is defined and cleanuparr_secret.api_key | length > 0
+      - cleanuparr_secret.password_hash is defined and cleanuparr_secret.password_hash | length > 0
+    fail_msg: "Cleanuparr secrets are missing."
+    quiet: true
+  when: "'cleanuparr' in services | map(attribute='name') | list"
