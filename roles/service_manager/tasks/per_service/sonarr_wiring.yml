@@ -1,0 +1,108 @@
+---
+# roles/service_manager/tasks/per_service/sonarr_wiring.yml
+
+- name: Set Sonarr config fact
+  ansible.builtin.set_fact:
+    service_manager_sonarr_config:
+      name: sonarr
+      port: 8989
+      api_key: "{{ api_keys.sonarr }}"
+      api_ver: v3
+      root_folder: /data/media/tv
+      prowlarr:
+        impl: Sonarr
+        base_url: http://sonarr:8989
+        sync_categories: [5000, 5010, 5030, 5040, 5070, 5080]
+      download_client_extra: {}
+
+- name: Wait for Sonarr API
+  ansible.builtin.uri:
+    url: "http://localhost:8989/api/v3/system/status?apikey={{ api_keys.sonarr }}"
+    method: GET
+  register: service_manager_sonarr_status
+  until: service_manager_sonarr_status.status == 200
+  retries: 10
+  delay: 5
+  no_log: true
+
+- name: Ensure Sonarr root folder
+  ansible.builtin.uri:
+    url: "http://localhost:8989/api/v3/rootfolder"
+    method: POST
+    headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+    body_format: json
+    body: { path: "{{ service_manager_sonarr_config.root_folder }}" }
+    status_code: [201, 400]
+  no_log: true
+
+- name: Import unmapped folders into Sonarr library
+  ansible.builtin.include_tasks: servarr_library_import.yml
+  vars:
+    servarr: "{{ service_manager_sonarr_config }}"
+  no_log: true
+
+- name: Get Sonarr media management config
+  ansible.builtin.uri:
+    url: "http://localhost:8989/api/v3/config/mediamanagement"
+    method: GET
+    headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+  register: service_manager_sonarr_mm_config
+  no_log: true
+
+- name: Enable hardlinks in Sonarr media management
+  ansible.builtin.uri:
+    url: "http://localhost:8989/api/v3/config/mediamanagement/{{ service_manager_sonarr_mm_config.json.id }}"
+    method: PUT
+    headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+    body_format: json
+    body: "{{ service_manager_sonarr_mm_config.json | combine({'copyUsingHardlinks': true}) }}"
+    status_code: 202
+  when: not (service_manager_sonarr_mm_config.json.copyUsingHardlinks | default(false))
+  no_log: true
+
+- name: Register qBittorrent as download client in Sonarr
+  ansible.builtin.uri:
+    url: "http://localhost:8989/api/v3/downloadclient"
+    method: POST
+    headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+    body_format: json
+    body: "{{ base | combine(service_manager_sonarr_config.download_client_extra) }}"
+    status_code: [201, 400]
+  no_log: true
+  vars:
+    base:
+      enable: true
+      name: qBittorrent
+      implementation: QBittorrent
+      configContract: QBittorrentSettings
+      fields:
+        - { name: host, value: gluetun }
+        - { name: port, value: 6969 }
+        - { name: username, value: admin }
+        - { name: password, value: "{{ admin_password }}" }
+
+- name: Link Prowlarr to Sonarr
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/applications{{ ('/' ~ existing_id) if existing_id else '' }}?forceSave=true"
+    method: "{{ 'PUT' if existing_id else 'POST' }}"
+    headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
+    body_format: json
+    body: "{{ base_body | combine({'id': existing_id}) if existing_id else base_body }}"
+    status_code: [200, 201, 202]
+  no_log: true
+  vars:
+    existing_matches: >-
+      {{ service_manager_prowlarr_apps.json
+         | selectattr('name', 'equalto', service_manager_sonarr_config.prowlarr.impl) | list }}
+    existing_id: "{{ existing_matches[0].id if existing_matches | length > 0 else none }}"
+    base_body:
+      name: "{{ service_manager_sonarr_config.prowlarr.impl }}"
+      implementation: "{{ service_manager_sonarr_config.prowlarr.impl }}"
+      configContract: "{{ service_manager_sonarr_config.prowlarr.impl }}Settings"
+      enable: true
+      syncLevel: fullSync
+      fields:
+        - { name: prowlarrUrl, value: "http://gluetun:9696" }
+        - { name: baseUrl, value: "{{ service_manager_sonarr_config.prowlarr.base_url }}" }
+        - { name: apiKey, value: "{{ api_keys.sonarr }}" }
+        - { name: syncCategories, value: "{{ service_manager_sonarr_config.prowlarr.sync_categories }}" }

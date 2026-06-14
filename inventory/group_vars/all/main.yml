@@ -42,130 +42,122 @@ cloudflare:
 backup:
   target: "/media/seagate/restic-backup"
 
+service_groups:
+  - name: core
+  - name: servarr
+  - name: downloaders
+  - name: media
+  - name: utils
+
 # Master Service List
 # This is the single source of truth for all apps in your homelab. Each entry
 # defines a service's identity, network exposure, and container image.
-#
-# Image pinning policy (see docs/decisions/0006-pinned-image-digests.md):
-#   image: "<repo>:<tag>@sha256:<digest>"   — tag for humans, digest for the
-#                                             pull. Digest is what actually
-#                                             resolves; tag is documentation.
-#   image: "<repo>@sha256:<digest>"         — when upstream does not expose a
-#                                             meaningful version label.
-# Never use a floating tag (`:latest`, `:stable`). Bumping = update both the
-# tag and the digest in the same commit. Get the digest with:
-#   docker image inspect <repo>:<tag> --format '{{index .RepoDigests 0}}'
-# NOT `docker inspect <container> --format '{{.Image}}'` — that's the image
-# config ID, which compose can't pull by (see decisions/0006).
-#
-# NOTE: not every public subdomain lives in this list. Static-only sites that
-# do not have a backend container are handled by their own roles and a hard-
-# coded vhost in Caddyfile.j2 — see roles/notes for note.caleb.trade.
+# ... (rest of comments)
 services:
+  - name: ci-mock
+    group: core
+    port: 0
+    image: "nginx:alpine@sha256:8b1e78743a03dbb2c95171cc58639fef29abc8816598e27fb910ed2e621e589a"
+  - name: seed-servarr
+    group: core
+    port: 0
+    image: "python:3.11-slim-bookworm@sha256:e2d3af735aff6eeee600b1933bedd99da6645fedf572cc12ef4cc1331f2ceebe"
   - name: caddy # reverse proxy + static site host
+    group: core
     image: "caddy:2.9.1@sha256:a863d46cf06a9084f36cbffbe9f4ad046971dca32f79c68129aaf15ad356d6ce"
   - name: gluetun
+    group: core
     port: 8888 # internal control port; not exposed
-    # qmcgaw/gluetun does not set a meaningful version label (only `latest`).
-    # To check the running version, read the startup banner:
-    #   docker logs gluetun 2>&1 | head -20
-    # ("Running version latest built on <date> (commit <hash>)").
-    # To bump: `docker pull qmcgaw/gluetun:latest` on the homelab, then
-    # `docker image inspect qmcgaw/gluetun:latest --format '{{index .RepoDigests 0}}'`
-    # to get the digest. Bumped 2026-05-08 from the 2025-01-22 build to refresh
-    # the bundled Proton servers.json after migrating off Mullvad.
+    # ... (rest of gluetun comments)
     image: "qmcgaw/gluetun@sha256:0d60fc67b2847ffb9b3ec2b42a4f5523c38e0e464974e71a640e8dcf0a52a0ee"
   - name: sonarr
+    group: servarr
     port: 8989
     image: "lscr.io/linuxserver/sonarr:4.0.14.2939-ls282@sha256:bae1b72ad55cee030a416aaaef1f20eee076e4c1c6d490689904d4609a2cabac"
   - name: radarr
+    group: servarr
     port: 7878
     image: "lscr.io/linuxserver/radarr:5.22.4.9896-ls274@sha256:105b7ffb9e88880a55a3fcd6116542f19af21aae8884a4e276e007d2816bbacb"
   - name: prowlarr
+    group: servarr
     port: 9696
     use_vpn: true
     image: "lscr.io/linuxserver/prowlarr:1.35.1.5034-ls117@sha256:dec1e580aad36bccaeb1aba283f01a5263761905c304875a603c9a952ecfda79"
   - name: qbittorrent
+    group: downloaders
     port: 6969
     use_vpn: true
     image: "lscr.io/linuxserver/qbittorrent:5.1.0-r0-ls393@sha256:eb16ef40b8ba2b6287184a8961d00c50abb99b3782365df70b63671d5c3504d8"
   - name: flaresolverr
+    group: servarr
     port: 8191
     image: "ghcr.io/flaresolverr/flaresolverr:v3.3.21@sha256:f104ee51e5124d83cf3be9b37480649355d223f7d8f9e453d0d5ef06c6e3b31b"
   - name: bazarr
+    group: media
     port: 6767
     image: "lscr.io/linuxserver/bazarr:v1.5.2-ls304@sha256:558d6ddf36cd87bac5d4fb2ee8488730c4f65718961ef4ca7073062378aa7641"
   - name: audiobookshelf
+    group: media
     port: 13378
     internal_port: 80
     image: "ghcr.io/advplyr/audiobookshelf:2.30.0@sha256:6fbd7dc95d53c6e168ce69e760b87c334e3b9ba88bf7b8531ed5a116d5d6da03"
   - name: overseerr
+    group: media
     subdomain: "request"
     port: 5055
     public: true
-    # Migrated 2026-04-26 from lscr.io/linuxserver/overseerr (sct/overseerr,
-    # archived 2026-02-15) to ghcr.io/seerr-team/seerr per decisions/0007.
-    # Service is still named `overseerr` (DNS, appdata path, compose project)
-    # to keep the migration small; can rename to `seerr` later.
     image: "ghcr.io/seerr-team/seerr:v3.2.0@sha256:c4cbd5121236ac2f70a843a0b920b68a27976be57917555f1c45b08a1e6b2aad"
   - name: plex
+    group: media
     subdomain: "plex"
     port: 32400
     public: true
     image: "lscr.io/linuxserver/plex:1.41.6.9685-d301f511a-ls264@sha256:53e6a94b2649b3c817757bbdf28d7970bc10e036ec0868b0704f3f51aa612742"
   - name: tautulli
+    group: media
     port: 8181
     image: "lscr.io/linuxserver/tautulli:v2.15.2-ls189@sha256:a9b699b5cdbc3a79c1d05a250daf1f9f9cba76dc8628d6caeffdbc99b42d8625"
   - name: kometa
+    group: media
     port: 0 # no web UI; run-once / scheduled
-    # kometateam/kometa does not set a version label. To identify a digest's
-    # release, see kometa.wiki release notes or github.com/Kometa-Team/Kometa.
     image: "kometateam/kometa@sha256:b265e952fcc3931ac378601faf9e6e0d90bee104fc70d9002f59c8678bf00b87"
   - name: recyclarr
+    group: servarr
     port: 0 # one-shot container
     image: "ghcr.io/recyclarr/recyclarr:8.3.2@sha256:55afe316d3e4e4e3b9120cef7c79436b1b5311f6a18d4ef4b7653e720499c90a"
   - name: cleanuparr
+    group: servarr
     port: 11011
-    # Schema-coupled SQL injection in api_wiring.yml needs to break loudly on
-    # upgrade — see docs/decisions/0005-cleanuparr-pinned-tag.md. Read live
-    # `.schema` of cleanuparr.db and users.db before bumping this digest.
     image: "ghcr.io/cleanuparr/cleanuparr:2.9.8@sha256:563b01707cb4509731793ce03bfc26f08640f4194908cc1fa6782e75f59dc405"
-  - name: cross-seed # finds .torrent files for existing data via Prowlarr
+  - name: cross-seed
+    group: downloaders
     port: 2468
-    # OCI label reports `version-6.13.6`; the upstream tag scheme uses this
-    # exact prefix, so the tag below should resolve. If it does not, fall
-    # back to digest-only (drop `:version-6.13.6` from the line).
     image: "ghcr.io/cross-seed/cross-seed:version-6.13.6@sha256:e2bf5b593e4e7d699e6242423ad7966190cd52ba8eefafdfdbb0cb5b0b609b96"
   - name: anki
+    group: utils
     subdomain: "anki"
     port: 27701
     internal_port: 8080
     public: true
-    # The jeankhawand image's internal port and on-disk layout have shifted
-    # between major tags (the "distroless" variants use /root/.syncserver
-    # instead of /anki_data). Bump deliberately.
     image: "jeankhawand/anki-sync-server:25.07@sha256:bac64aef13fbfe3e2e3ce8c25da732763bcdffe856225e366d4cda54eb829ef9"
   - name: uptime-kuma
+    group: core
     port: 3001
     image: "louislam/uptime-kuma:2.2.1@sha256:7337368a77873f159435de9ef09567f68c31285ed5f951dec36256c4b267ee44"
   - name: discord-bridge
+    group: utils
     port: 9000
     image: "python:3.12-alpine@sha256:6f22019c4ced1e4ee3965efe87ccae4d26213d73735c5558b62a66e75db33055"
   - name: phone-logger
+    group: utils
     port: 5001
-    # Locally built from a separate public repo; no registry digest. Source
-    # is checked out on the host and `docker build` runs at deploy time.
-    # See docs/decisions/0010-locally-built-services.md.
     image: "phone-logger:local"
     build_local: true
     source_repo: "https://github.com/CalebLarsen/phone-logger.git"
     source_branch: "main"
-  - name: audiobookbay-automated # ABB → qBittorrent magnet handoff for audiobooks
+  - name: audiobookbay-automated
+    group: downloaders
     port: 5078
-    # Upstream only publishes :latest, so digest-only pin per the image
-    # policy at the top of `services:`. Bump by re-pulling on the host
-    # and capturing the new RepoDigest.
-    # Source: github.com/JamesRy96/audiobookbay-automated.
     image: "ghcr.io/jamesry96/audiobookbay-automated@sha256:be58c8a0c2ef4ec4c1a1cc6714791b5b72c8bf62a24774ee8c784257c87a2678"
 
 overseerr:

@@ -1,0 +1,23 @@
+  radarr:
+    image: "{{ service_config.image }}"
+    container_name: radarr
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+    volumes:
+      - "{{ config_root }}/radarr:/config"
+      - "{{ data_root }}:/data"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "{{ config_root }}/scripts/trigger-kometa.sh:/config/scripts/trigger-kometa.sh"
+{% set use_vpn = service_config.use_vpn | default(false) %}
+{% set host_port = service_config.port %}
+{% set internal_port = 7878 %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7878/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

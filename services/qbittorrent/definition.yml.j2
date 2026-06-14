@@ -1,0 +1,28 @@
+  qbittorrent:
+    image: "{{ service_config.image }}"
+    container_name: qbittorrent
+{% set use_vpn = service_config.use_vpn | default(false) %}
+{% set host_port = service_config.port %}
+{% set internal_port = service_config.port %}
+{% include "_service_network.yml.j2" %}
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+      - WEBUI_PORT="{{ service_config.port }}"
+    volumes:
+      - "{{ config_root }}/qbittorrent:/config"
+      # Single bind mount of the whole data_root so qBittorrent can see
+      # cross-seed-links/ as well as torrents/ — cross-seed injects torrents
+      # pointing at /data/cross-seed-links/... and qBittorrent must be able
+      # to open those paths. Two separate mounts also re-introduce EXDEV at
+      # the bind-mount layer (link() across docker mounts looks like a
+      # cross-device op even when the underlying fs is the same).
+      - "{{ data_root }}:/data"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6969/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

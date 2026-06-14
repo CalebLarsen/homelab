@@ -1,5 +1,8 @@
 ---
 # roles/service_manager/tasks/api_wiring.yml
+#
+# Main dispatcher for service API provisioning.
+# This file is only included during non-check-mode deployments.
 
 - name: Set API key facts from secrets
   ansible.builtin.set_fact:
@@ -7,118 +10,18 @@
     service_manager_radarr_api_key: "{{ api_keys.radarr }}"
     service_manager_prowlarr_api_key: "{{ api_keys.prowlarr }}"
 
-# Data dict driving the Sonarr/Radarr API provisioning below. Add a new *arr
-# here and every step (readiness wait, root folder, download client, Prowlarr
-# linkage) picks it up automatically.
-- name: Set Servarr config
-  ansible.builtin.set_fact:
-    service_manager_servarrs:
-      - name: sonarr
-        port: 8989
-        api_key: "{{ service_manager_sonarr_api_key }}"
-        api_ver: v3
-        root_folder: /data/media/tv
-        prowlarr:
-          impl: Sonarr
-          base_url: http://sonarr:8989
-          sync_categories: [5000, 5010, 5030, 5040, 5070, 5080]
-        # extra keys merged into the download-client POST body
-        download_client_extra: {}
-      - name: radarr
-        port: 7878
-        api_key: "{{ service_manager_radarr_api_key }}"
-        api_ver: v3
-        root_folder: /data/media/movies
-        prowlarr:
-          impl: Radarr
-          base_url: http://radarr:7878
-          sync_categories: [2000, 2010, 2020, 2030, 2035, 2040, 2045, 2050, 2060]
-        download_client_extra: { priority: 1 }
-
-- name: Wait for Servarr and Prowlarr APIs
+- name: Wait for Prowlarr API
   ansible.builtin.uri:
-    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/system/status?apikey={{ item.api_key }}"
+    url: "http://localhost:9696/api/v1/system/status?apikey={{ service_manager_prowlarr_api_key }}"
     method: GET
-  register: service_manager_status_check
-  until: service_manager_status_check.status == 200
+  register: service_manager_prowlarr_status
+  until: service_manager_prowlarr_status.status == 200
   retries: 10
   delay: 5
-  loop: "{{ service_manager_servarrs + [{'name': 'prowlarr', 'port': 9696, 'api_key': service_manager_prowlarr_api_key, 'api_ver': 'v1'}] }}"
-  loop_control:
-    label: "{{ item.name }}"
   no_log: true
 
 - name: Run Prowlarr Tasks
   ansible.builtin.include_tasks: prowlarr_indexers.yml
-- name: Ensure Servarr root folder
-  ansible.builtin.uri:
-    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/rootfolder"
-    method: POST
-    headers: { X-Api-Key: "{{ item.api_key }}" }
-    body_format: json
-    body:
-      path: "{{ item.root_folder }}"
-    status_code: [201, 400]
-  loop: "{{ service_manager_servarrs }}"
-  loop_control:
-    label: "{{ item.name }}"
-
-- name: Import unmapped folders into each Servarr library
-  ansible.builtin.include_tasks: servarr_library_import.yml
-  loop: "{{ service_manager_servarrs }}"
-  loop_control:
-    loop_var: servarr
-    label: "{{ servarr.name }}"
-
-- name: Get Servarr media management config
-  ansible.builtin.uri:
-    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/config/mediamanagement"
-    method: GET
-    headers: { X-Api-Key: "{{ item.api_key }}" }
-  register: service_manager_mm_config
-  loop: "{{ service_manager_servarrs }}"
-  loop_control:
-    label: "{{ item.name }}"
-
-- name: Enable hardlinks in Servarr media management
-  ansible.builtin.uri:
-    url: "http://localhost:{{ item.item.port }}/api/{{ item.item.api_ver }}/config/mediamanagement/{{ item.json.id }}"
-    method: PUT
-    headers: { X-Api-Key: "{{ item.item.api_key }}" }
-    body_format: json
-    # Round-trip the full object with copyUsingHardlinks flipped on. Servarr
-    # APIs require the complete config payload, not a partial patch.
-    body: "{{ item.json | combine({'copyUsingHardlinks': true}) }}"
-    status_code: [200, 202]
-  loop: "{{ service_manager_mm_config.results }}"
-  loop_control:
-    label: "{{ item.item.name }}"
-  no_log: true
-  when: not (item.json.copyUsingHardlinks | default(false))
-
-- name: Register qBittorrent as download client in each Servarr
-  ansible.builtin.uri:
-    url: "http://localhost:{{ item.port }}/api/{{ item.api_ver }}/downloadclient"
-    method: POST
-    headers: { X-Api-Key: "{{ item.api_key }}" }
-    body_format: json
-    body: "{{ base | combine(item.download_client_extra) }}"
-    status_code: [201, 400]
-  loop: "{{ service_manager_servarrs }}"
-  loop_control:
-    label: "{{ item.name }}"
-  no_log: true
-  vars:
-    base:
-      enable: true
-      name: qBittorrent
-      implementation: QBittorrent
-      configContract: QBittorrentSettings
-      fields:
-        - { name: host, value: gluetun }
-        - { name: port, value: 6969 }
-        - { name: username, value: admin }
-        - { name: password, value: "{{ admin_password }}" }
 
 - name: Get existing Prowlarr applications
   ansible.builtin.uri:
@@ -126,43 +29,19 @@
     method: GET
     headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
   register: service_manager_prowlarr_apps
-
-- name: Link Prowlarr to each Servarr
-  ansible.builtin.uri:
-    url: "http://localhost:9696/api/v1/applications{{ ('/' ~ existing_id) if existing_id else '' }}?forceSave=true"
-    method: "{{ 'PUT' if existing_id else 'POST' }}"
-    headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
-    body_format: json
-    body: "{{ base_body | combine({'id': existing_id}) if existing_id else base_body }}"
-    status_code: [200, 201, 202]
-  loop: "{{ service_manager_servarrs }}"
-  loop_control:
-    label: "{{ item.name }}"
   no_log: true
-  vars:
-    existing_matches: >-
-      {{ service_manager_prowlarr_apps.json
-         | selectattr('name', 'equalto', item.prowlarr.impl) | list
-         if service_manager_prowlarr_apps.json is defined else [] }}
-    existing_id: "{{ existing_matches[0].id if existing_matches | length > 0 else none }}"
-    base_body:
-      name: "{{ item.prowlarr.impl }}"
-      implementation: "{{ item.prowlarr.impl }}"
-      configContract: "{{ item.prowlarr.impl }}Settings"
-      enable: true
-      syncLevel: fullSync
-      fields:
-        - { name: prowlarrUrl, value: "http://gluetun:9696" }
-        - { name: baseUrl, value: "{{ item.prowlarr.base_url }}" }
-        - { name: apiKey, value: "{{ item.api_key }}" }
-        - { name: syncCategories, value: "{{ item.prowlarr.sync_categories }}" }
-  when: service_manager_prowlarr_apps.json is defined
 
-# --- CLEANUPARR PROVISIONING ---
-# Cleanuparr requires an admin user to be created via its web UI before its
-# API becomes reachable. Until that bootstrap is automatable, we seed the
-# sqlite DB directly. Image tag pinning (see docker-compose template) limits
-# exposure to schema drift on upgrades.
+# --- SERVICE DELEGATION ---
+
+- name: Wire Sonarr
+  ansible.builtin.include_tasks: per_service/sonarr_wiring.yml
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+- name: Wire Radarr
+  ansible.builtin.include_tasks: per_service/radarr_wiring.yml
+  when: "'radarr' in services | map(attribute='name') | list"
+
+# --- REMAINING WIRING ---
 
 - name: Wait for Cleanuparr API to be ready
   ansible.builtin.uri:
@@ -210,9 +89,6 @@
         INSERT OR REPLACE INTO arr_configs (id, type, failed_import_max_strikes)
         VALUES ('6096303A-399C-42B8-BE8F-60A02CEC5A51', 'radarr', 3);
 
-        -- failed_import_patterns excludes the .iso/.exe import-error so Malware
-        -- Blocker handles it; works around Cleanuparr#282 (Queue Cleaner doesn't
-        -- blocklist on Failed Import).
         INSERT OR REPLACE INTO queue_cleaner_configs (
           id, cron_expression, downloading_metadata_max_strikes, enabled,
           failed_import_delete_private, failed_import_ignore_private,
@@ -259,8 +135,6 @@
           1, 3, 'Both', 0, 100, 0
         );
 
-        -- Global Seeker config. search_enabled=1 lets Seeker queue replacement
-        -- searches in Sonarr/Radarr after Queue Cleaner removes a download.
         INSERT OR REPLACE INTO seeker_configs (
           id, post_release_grace_hours, proactive_search_enabled,
           search_enabled, search_interval, selection_strategy, use_round_robin
@@ -293,7 +167,7 @@
   ansible.builtin.shell: |
     sqlite3 -bail {{ config_root }}/cleanuparr/users.db < {{ config_root }}/cleanuparr/inject_users.sql
     sqlite3 -bail {{ config_root }}/cleanuparr/cleanuparr.db < {{ config_root }}/cleanuparr/inject_configs.sql
-  changed_when: true  # always changes — re-applies the SQL scripts unconditionally
+  changed_when: true
   when: "'cleanuparr' in services | map(attribute='name') | list"
   notify: Restart cleanuparr
 
@@ -315,22 +189,18 @@
     method: GET
     headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
   register: service_manager_overseerr_auth_check
-  # Probe only — a 401/403 here means Overseerr isn't configured yet, which
-  # is a valid state on first deploy. Downstream tasks gate on
-  # service_manager_overseerr_auth_check.status == 200.
   failed_when: false
   changed_when: false
 
 - name: Provision Overseerr (Only if authenticated)
-  when: "service_manager_overseerr_auth_check.status | default(0) == 200"
+  when: "service_manager_overseerr_auth_check.status == 200"
+  no_log: true
   block:
     - name: Trigger Plex user import
       ansible.builtin.uri:
         url: "http://localhost:5055/api/v1/settings/plex/users"
         method: POST
         headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
-      # Kicks a background import in Overseerr; we don't need to block the
-      # deploy on its response.
       failed_when: false
 
     - name: Get existing Overseerr users
@@ -460,7 +330,6 @@
         method: PUT
         headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
         body_format: json
-        # Overseerr's PUT API rejects the read-only 'id' field but REQUIRES 'activeProfileName'.
         body: >-
           {{ item.json[0]
              | combine({
@@ -613,8 +482,6 @@
       X-Plex-Token: "{{ plex_secret.online_token }}"
       Accept: application/json
   register: service_manager_plex_libraries
-  # Probe — any non-200 means Plex isn't ready for library provisioning yet.
-  # The subsequent "Provision Plex libraries" task gates on .status == 200.
   failed_when: false
 
 - name: Provision Plex libraries
@@ -630,17 +497,13 @@
     status_code: 201
   loop: "{{ overseerr.libraries }}"
   when:
-    - "service_manager_plex_libraries.status | default(0) == 200"
-    - "service_manager_plex_libraries.json is defined"
+    - "service_manager_plex_libraries.status == 200"
     - >-
       item.name not in (
         service_manager_plex_libraries.json.MediaContainer.Directory
         | default([]) | map(attribute='title') | list
       )
 
-# Plex rewrites Preferences.xml from its in-memory state, so template-only
-# changes to scan prefs get clobbered. The /:/prefs API is the authoritative
-# path; Plex persists whatever we PUT here.
 - name: Enable Plex automatic library scanning
   ansible.builtin.uri:
     url: >-
@@ -648,12 +511,9 @@
     method: PUT
     headers: { X-Plex-Token: "{{ plex_secret.online_token }}" }
     status_code: [200]
-  when: "service_manager_plex_libraries.status | default(0) == 200"
+  when: "service_manager_plex_libraries.status == 200"
 
 # --- CROSS-SEED PROVISIONING ---
-# cross-seed needs per-indexer torznab URLs from Prowlarr. Enumerate them now
-# (Prowlarr is up + ready by this point) and template the config; cross-seed
-# will pick it up on its next restart cycle (notified handler).
 
 - name: Get Prowlarr indexers for cross-seed
   ansible.builtin.uri:
@@ -672,15 +532,10 @@
     mode: "0644"
   vars:
     cross_seed_indexers: "{{ service_manager_prowlarr_indexers.json | selectattr('enable', 'equalto', true) | list }}"
-  when:
-    - "'cross-seed' in services | map(attribute='name') | list"
-    - service_manager_prowlarr_indexers.json is defined
+  when: "'cross-seed' in services | map(attribute='name') | list"
   notify: Restart cross-seed
 
 # --- KOMETA PROVISIONING ---
-# Kometa needs the mapping from user labels to actual Overseerr-generated
-# tags in Radarr/Sonarr to correctly apply Plex labels. Re-template here
-# now that the mapping is built.
 
 - name: Template Kometa config with discovered tag mappings
   ansible.builtin.template:

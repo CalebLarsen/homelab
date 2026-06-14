@@ -1,0 +1,25 @@
+  plex:
+    image: "{{ service_config.image }}"
+    container_name: plex
+    networks:
+      - "{{ docker_network }}"
+    ports:
+      - 32400:32400
+    environment:
+      - PUID={{ puid }}
+      - PGID={{ pgid }}
+      - TZ="{{ timezone }}"
+      - VERSION=docker
+      - PLEX_CLAIM={{ plex_secret.claim_token | default('') }}
+    devices:
+     - /dev/dri:/dev/dri
+    volumes:
+      - "{{ config_root }}/plex:/config"
+      - "{{ data_root }}/media:/data/media"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:32400/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

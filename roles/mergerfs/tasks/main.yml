@@ -20,11 +20,14 @@
     _deb_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
   when: mergerfs_version not in (_mergerfs_installed.stdout | default(''))
   register: _mergerfs_deb
+  check_mode: false # Ensure file is present for subsequent tasks even in check mode
 
 - name: Install upstream mergerfs
   ansible.builtin.apt:
     deb: "/tmp/mergerfs_{{ mergerfs_version }}.deb"
-  when: mergerfs_version not in (_mergerfs_installed.stdout | default(''))
+  when:
+    - mergerfs_version not in (_mergerfs_installed.stdout | default(''))
+    - not ansible_check_mode or (_mergerfs_deb.stat.exists | default(false))
   register: _mergerfs_upgraded
 
 - name: Make sure NVME folder exists to add the base drive to the MergerFS pool

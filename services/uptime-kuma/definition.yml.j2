@@ -1,0 +1,18 @@
+  uptime-kuma:
+    image: "{{ service_config.image }}"
+    container_name: uptime-kuma
+    environment:
+      - TZ="{{ timezone }}"
+    volumes:
+      - "{{ config_root }}/uptime-kuma:/app/data"
+{% set use_vpn = service_config.use_vpn | default(false) %}
+{% set host_port = service_config.port %}
+{% set internal_port = 3001 %}
+{% include "_service_network.yml.j2" %}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

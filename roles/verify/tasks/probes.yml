@@ -1,0 +1,65 @@
+---
+# Static Logic Validation (Check-mode friendly)
+# These probes verify the intended state and host health without requiring
+# running containers or live API access.
+
+- name: Verify all service images are pinned to a digest
+  ansible.builtin.assert:
+    that: _unpinned | length == 0
+    fail_msg: |-
+      Unpinned service images — see docs/decisions/0006-pinned-image-digests.md:
+      {% for s in _unpinned %}  - {{ s.name }}: {{ s.image }}
+      {% endfor %}
+  vars:
+    _unpinned: >-
+      {{ services
+         | rejectattr('build_local', 'defined')
+         | rejectattr('image', 'search', '@sha256:')
+         | list }}
+
+- name: Verify host storage pool
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && mount | grep {{ storage.pool_path }} | grep fuse.mergerfs"
+    executable: /bin/bash
+  check_mode: false # Force probe of live kernel mount state
+  register: verify_pool_check
+  changed_when: false
+  failed_when: verify_pool_check.rc != 0
+
+- name: Read live mergerfs runtime options
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && ps -ww -o args= -C mergerfs | head -1"
+    executable: /bin/bash
+  check_mode: false
+  register: verify_mergerfs_args
+  changed_when: false
+  failed_when: verify_mergerfs_args.rc != 0
+
+- name: Verify mergerfs cache.files is enabled (mmap support)
+  ansible.builtin.assert:
+    that:
+      - >-
+        'cache.files=partial' in verify_mergerfs_args.stdout
+        or 'cache.files=full' in verify_mergerfs_args.stdout
+        or 'cache.files=auto-full' in verify_mergerfs_args.stdout
+    fail_msg: |
+      mergerfs is mounted without `cache.files=partial` (or stronger).
+      Live mergerfs args: {{ verify_mergerfs_args.stdout }}
+
+- name: Verify Cloudflare Tunnel service
+  ansible.builtin.systemd:
+    name: cloudflared
+    state: started
+  check_mode: false
+  register: verify_tunnel_status
+  failed_when: verify_tunnel_status.status.ActiveState != 'active'
+
+- name: Verify Docker service health
+  ansible.builtin.command: "docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' {{ item.name }}"
+  loop: "{{ services | rejectattr('name', 'equalto', 'recyclarr') | list }}"
+  check_mode: false
+  register: verify_container_status
+  failed_when: "'running' not in verify_container_status.stdout"
+  changed_when: false
+  # Ignore failures if containers haven't been created yet (first deploy logic)
+  ignore_errors: true

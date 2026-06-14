@@ -1,62 +1,70 @@
 ---
-# Per-service restart handlers. `listen:` groups multiple restarts under a single
-# notification — useful when one task touches several services (e.g. the Servarr
-# admin injection writes sonarr/radarr/prowlarr DBs in a single shell call).
+# Group-level restart handlers.
+# These align with the new grouped Docker Compose stacks.
 
-- name: Restart sonarr
+- name: Restart core stack
   community.docker.docker_compose_v2:
-    project_src: services/sonarr
+    project_name: core
+    project_src: "{{ service_manager_project_root }}"
+    files: ["core.yml"]
     state: restarted
-  listen: restart service_manager_servarrs
+  when: not ansible_check_mode
+  listen:
+    - Restart caddy
+    - Restart gluetun
 
-- name: Restart radarr
+- name: Restart servarr stack
   community.docker.docker_compose_v2:
-    project_src: services/radarr
+    project_name: servarr
+    project_src: "{{ service_manager_project_root }}"
+    files: ["servarr.yml"]
     state: restarted
-  listen: restart service_manager_servarrs
+  when: not ansible_check_mode
+  listen:
+    - restart service_manager_servarrs
+    - Restart sonarr
+    - Restart radarr
+    - Restart prowlarr
+    - Restart cleanuparr
+    - Restart flaresolverr
+    - Restart recyclarr
 
-- name: Restart prowlarr
+- name: Restart downloaders stack
   community.docker.docker_compose_v2:
-    project_src: services/prowlarr
+    project_name: downloaders
+    project_src: "{{ service_manager_project_root }}"
+    files: ["downloaders.yml"]
     state: restarted
-  listen: restart service_manager_servarrs
+  when: not ansible_check_mode
+  listen:
+    - Restart qbittorrent
+    - Restart cross-seed
+    - Restart audiobookbay-automated
 
-- name: Restart cleanuparr
+- name: Restart media stack
   community.docker.docker_compose_v2:
-    project_src: services/cleanuparr
+    project_name: media
+    project_src: "{{ service_manager_project_root }}"
+    files: ["media.yml"]
     state: restarted
+  when: not ansible_check_mode
+  listen:
+    - Restart bazarr
+    - Restart audiobookshelf
+    - Restart overseerr
+    - Restart plex
+    - Restart tautulli
+    - Restart kometa
 
-- name: Restart audiobookshelf
+- name: Restart utils stack
   community.docker.docker_compose_v2:
-    project_src: services/audiobookshelf
+    project_name: utils
+    project_src: "{{ service_manager_project_root }}"
+    files: ["utils.yml"]
     state: restarted
-
-- name: Restart qbittorrent
-  community.docker.docker_compose_v2:
-    project_src: services/qbittorrent
-    state: restarted
-
-- name: Restart caddy
-  community.docker.docker_compose_v2:
-    project_src: services/caddy
-    state: restarted
-
-- name: Restart discord-bridge
-  community.docker.docker_compose_v2:
-    project_src: services/discord-bridge
-    state: restarted
-
-- name: Restart cross-seed
-  community.docker.docker_compose_v2:
-    project_src: services/cross-seed
-    state: restarted
-
-- name: Restart webhook
-  community.docker.docker_compose_v2:
-    project_src: services/webhook
-    state: restarted
-
-- name: Restart kometa
-  community.docker.docker_compose_v2:
-    project_src: services/kometa
-    state: restarted
+  when: not ansible_check_mode
+  listen:
+    - Restart discord-bridge
+    - Restart anki
+    - Restart phone-logger
+    - Restart webhook

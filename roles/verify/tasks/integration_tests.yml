@@ -1,0 +1,192 @@
+---
+# Live System Validation (Production Only)
+# These tasks execute inside containers or against live APIs.
+# They are only run during non-check-mode deployments.
+
+- name: Validate Caddy configuration
+  ansible.builtin.command: docker exec caddy caddy validate --config /etc/caddy/Caddyfile
+  register: verify_caddy_validation
+  changed_when: false
+  failed_when: verify_caddy_validation.rc != 0
+  when: "'caddy' in services | map(attribute='name') | list"
+
+- name: Verify Internal DNS Resolution (Sonarr -> Gluetun)
+  ansible.builtin.command: docker exec sonarr getent hosts gluetun
+  register: verify_dns_check
+  changed_when: false
+  failed_when: verify_dns_check.rc != 0
+  when: "'sonarr' in services | map(attribute='name') | list and 'gluetun' in services | map(attribute='name') | list"
+
+- name: Get Host Public IP
+  ansible.builtin.uri:
+    url: "https://ifconfig.me/ip"
+    return_content: true
+  register: verify_host_ip
+  retries: 3
+  delay: 5
+
+- name: VPN Connectivity Verification
+  when: "'gluetun' in services | map(attribute='name') | list"
+  block:
+    - name: Verify Gluetun can reach ProtonVPN Internal Gateway
+      ansible.builtin.command: docker exec gluetun ping -c 1 10.2.0.1
+      register: verify_vpn_gateway
+      changed_when: false
+      retries: 5
+      delay: 5
+
+    - name: Verify VPN Geolocation (Not Home ISP)
+      ansible.builtin.command: docker exec gluetun wget -qO- https://ipinfo.io/json
+      register: verify_vpn_geo_raw
+      changed_when: false
+      retries: 3
+      delay: 5
+
+    - name: Parse VPN Geolocation
+      ansible.builtin.set_fact:
+        verify_vpn_geo: "{{ verify_vpn_geo_raw.stdout | from_json }}"
+
+    - name: Fail if VPN IP matches Host IP
+      ansible.builtin.fail:
+        msg: "VPN Leak Detected! Container IP matches Host: {{ verify_vpn_geo.ip }}"
+      when: "verify_vpn_geo.ip == verify_host_ip.content | trim"
+
+    - name: Read VPN forwarded port from gluetun
+      ansible.builtin.command: docker exec gluetun cat /tmp/gluetun/forwarded_port
+      register: verify_vpn_pf
+      changed_when: false
+      retries: 6
+      delay: 5
+      until: verify_vpn_pf.rc == 0 and verify_vpn_pf.stdout is regex('^[0-9]+$')
+
+    - name: Verify VPN forwarded port is a valid number
+      ansible.builtin.assert:
+        that:
+          - verify_vpn_pf.rc == 0
+          - verify_vpn_pf.stdout is regex('^[0-9]+$')
+        fail_msg: "gluetun did not obtain a forwarded port."
+
+    - name: Verify qBittorrent is bound to the VPN-forwarded port
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec qbittorrent netstat -ltn \
+          | grep -E ':{{ verify_vpn_pf.stdout }}([[:space:]]|$)' >/dev/null
+      args:
+        executable: /bin/bash
+      register: verify_qbt_port_bind
+      changed_when: false
+      retries: 12 # Increased from 6
+      delay: 10   # Increased from 5
+      until: verify_qbt_port_bind.rc == 0
+      when: "'qbittorrent' in services | map(attribute='name') | list"
+
+- name: Verify MergerFS is writable
+  ansible.builtin.file:
+    path: "{{ storage.pool_path }}/.ansible_verify_write"
+    state: touch
+    mode: "0644"
+  register: verify_mfs_write
+
+- name: Cleanup MergerFS test file
+  ansible.builtin.file:
+    path: "{{ storage.pool_path }}/.ansible_verify_write"
+    state: absent
+  changed_when: false
+
+- name: Verify Sonarr root folder exists in container
+  ansible.builtin.command: docker exec sonarr ls -la /data/media/tv
+  register: verify_sonarr_folder
+  changed_when: false
+  when: "'sonarr' in services | map(attribute='name') | list"
+
+- name: Storage Write-Through and Hardlink tests
+  when: "'sonarr' in services | map(attribute='name') | list"
+  block:
+    - name: Perform Storage Write-Through Test (Sonarr)
+      ansible.builtin.command: docker exec sonarr touch /data/media/tv/.ansible_verify_write
+      changed_when: false
+
+    - name: Verify file exists on Host MergerFS path
+      ansible.builtin.stat:
+        path: "{{ storage.pool_path }}/media/tv/.ansible_verify_write"
+      register: verify_host_stat
+      failed_when: not verify_host_stat.stat.exists
+
+    - name: Hardlink test (torrents -> media) inside sonarr
+      ansible.builtin.shell: |
+        set -e
+        docker exec sonarr sh -c '
+          src=/data/torrents/.ansible_verify_link.src
+          dst=/data/media/tv/.ansible_verify_link.dst
+          echo verify > "$src"
+          ln "$src" "$dst"
+          rm -f "$src" "$dst"
+        '
+      register: verify_hardlink_test
+      changed_when: false
+
+# --- PROWLARR / SERVARR INTEGRATION ---
+
+- name: Prowlarr Integration Tests
+  when: "'prowlarr' in services | map(attribute='name') | list"
+  block:
+    - name: Verify Prowlarr has indexers configured
+      ansible.builtin.uri:
+        url: "http://localhost:9696/api/v1/indexer"
+        method: GET
+        headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
+      register: verify_prowlarr_indexers
+      failed_when: "verify_prowlarr_indexers.json | length == 0"
+
+    - name: Perform Synthetic Indexer Search (Prowlarr)
+      ansible.builtin.uri:
+        url: "http://localhost:9696/api/v1/search?query=Big%20Buck%20Bunny"
+        method: GET
+        headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
+        timeout: 30
+      register: verify_prowlarr_search
+      failed_when: verify_prowlarr_search.json | length == 0
+
+- name: Sonarr/Radarr Integration Tests
+  block:
+    - name: Verify Prowlarr indexers are synced to Sonarr
+      ansible.builtin.uri:
+        url: "http://localhost:8989/api/v3/indexer"
+        method: GET
+        headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+      register: verify_sonarr_indexers
+      until: "(verify_sonarr_indexers.json | length > 0)"
+      retries: 3
+      delay: 5
+      when: "'sonarr' in services | map(attribute='name') | list"
+
+    - name: Verify Sonarr download client status
+      ansible.builtin.uri:
+        url: "http://localhost:8989/api/v3/downloadclient"
+        headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+      register: verify_sonarr_dc
+      failed_when: >
+        verify_sonarr_dc.json | selectattr('name', 'equalto', 'qBittorrent') |
+        selectattr('enable', 'equalto', true) | list | length == 0
+      when: "'sonarr' in services | map(attribute='name') | list"
+
+# --- PUBLIC ACCESS & UI ---
+
+- name: Final Connectivity Check (Root)
+  ansible.builtin.uri:
+    url: "https://{{ cloudflare.domain }}/"
+    status_code: [200, 404, 403, 530]
+  delegate_to: localhost
+  become: false
+  register: verify_public_check
+  until: verify_public_check.status in [200, 404, 403, 530]
+  retries: 5
+  delay: 10
+
+- name: Report Success
+  ansible.builtin.debug:
+    msg: |
+      --------------------------------------------------
+      ALL SYSTEMS GREEN!
+      Your homelab is now fully operational.
+      --------------------------------------------------

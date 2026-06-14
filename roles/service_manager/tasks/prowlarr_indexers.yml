@@ -6,6 +6,7 @@
     headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
     status_code: 200
   register: service_manager_indexer_defs
+  no_log: true
 
 - name: Fetch currently configured proxies in Prowlarr
   ansible.builtin.uri:
@@ -14,6 +15,7 @@
     headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
     status_code: 200
   register: service_manager_current_proxies
+  no_log: true
 
 - name: Ensure Flaresolverr proxy is configured
   ansible.builtin.uri:
@@ -31,6 +33,7 @@
   when:
     - service_manager_current_proxies.json is defined
     - "service_manager_current_proxies.json | selectattr('name', 'equalto', 'FlareSolverr') | list | length == 0"
+  no_log: true
 
 - name: Fetch currently configured indexers in Prowlarr
   ansible.builtin.uri:
@@ -39,6 +42,7 @@
     headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
     status_code: 200
   register: service_manager_current_indexers
+  no_log: true
 
 - name: Ensure Prowlarr indexers are configured and enabled
   ansible.builtin.uri:
@@ -78,3 +82,41 @@
     - service_manager_current_indexers.json is defined
   # Final safety: don't let a single indexer site-down event crash the deploy.
   failed_when: false
+  no_log: true
+
+- name: Configure CI-Internal indexer using live schema
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/indexer{{ '/' + (existing_ci.id | string) if existing_ci else '' }}?forceSave=true"
+    method: "{{ 'PUT' if existing_ci else 'POST' }}"
+    headers: { X-Api-Key: "{{ service_manager_prowlarr_api_key }}" }
+    body_format: json
+    body:
+      id: "{{ existing_ci.id | default(omit) }}"
+      name: "CI-Internal"
+      implementation: "{{ torznab_def.implementation }}"
+      configContract: "{{ torznab_def.configContract }}"
+      appProfileId: 1
+      protocol: "torrent"
+      priority: 1
+      enable: true
+      syncLevel: "fullSync"
+      fields: "{{ final_fields | from_json }}"
+    status_code: [200, 201, 202]
+  vars:
+    torznab_def: "{{ service_manager_indexer_defs.json | selectattr('implementation', 'equalto', 'Torznab') | first }}"
+    existing_ci: "{{ service_manager_current_indexers.json | default([]) | selectattr('name', 'equalto', 'CI-Internal') | list | first | default(none) }}"
+    # Build the fields list as a JSON string first to ensure type safety
+    final_fields: >-
+      {% set fields = [] %}
+      {% for f in torznab_def.fields %}
+        {% if f.name == 'baseUrl' %}{% set _ = fields.append(f | combine({'value': 'http://ci-mock/'})) %}
+        {% elif f.name == 'apiPath' %}{% set _ = fields.append(f | combine({'value': '/'})) %}
+        {% elif f.name == 'apiKey' %}{% set _ = fields.append(f | combine({'value': 'ci-mock-key'})) %}
+        {% elif f.name == 'categories' %}{% set _ = fields.append(f | combine({'value': [2000]})) %}
+        {% else %}{% set _ = fields.append(f) %}{% endif %}
+      {% endfor %}
+      {{ fields | to_json }}
+  when:
+    - service_manager_current_indexers.json is defined
+    - service_manager_indexer_defs.json is defined
+  no_log: true
