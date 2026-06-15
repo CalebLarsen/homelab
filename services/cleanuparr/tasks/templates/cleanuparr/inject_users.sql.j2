@@ -1,0 +1,10 @@
+INSERT OR REPLACE INTO users (
+  id, username, password_hash, totp_secret, totp_enabled,
+  api_key, setup_completed, failed_login_attempts,
+  created_at, updated_at
+) VALUES (
+  '0AD3F92B-BA9D-4B24-85F3-B509AC6994F1', 'admin',
+  '{{ cleanuparr_secret.password_hash }}', '', 0,
+  '{{ cleanuparr_secret.api_key }}', 1, 0,
+  '2026-04-15 12:00:00', '2026-04-15 12:00:00'
+);

@@ -2,8 +2,8 @@
     image: "nginx:alpine"
     container_name: ci-mock
     volumes:
-      - "{{ service_manager_project_root }}/ci-mock:/usr/share/nginx/html:ro"
-      - "{{ service_manager_project_root }}/ci-mock/nginx.conf:/etc/nginx/nginx.conf:ro"
+      - "{{ homelab_project_root }}/ci-mock:/usr/share/nginx/html:ro"
+      - "{{ homelab_project_root }}/ci-mock/nginx.conf:/etc/nginx/nginx.conf:ro"
     networks:
       - "{{ docker_network }}"
     restart: unless-stopped

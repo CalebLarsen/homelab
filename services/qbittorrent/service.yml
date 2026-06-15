@@ -1,0 +1,6 @@
+---
+name: qbittorrent
+group: downloaders
+port: 6969
+use_vpn: true
+image: "lscr.io/linuxserver/qbittorrent:5.1.0-r0-ls393@sha256:eb16ef40b8ba2b6287184a8961d00c50abb99b3782365df70b63671d5c3504d8"

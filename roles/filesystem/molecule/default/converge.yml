@@ -1,0 +1,19 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  vars:
+    docker_network: "test_network"
+    homelab_project_root: "/root/deploy"
+    config_root: "/tmp/config"
+    services:
+      - name: test_service
+        group: test_group
+    puid: 1000
+    pgid: 1000
+    homelab_skip_docker_network: true
+    homelab_filesystem_async_poll: 1
+  tasks:
+    - name: "Include filesystem"
+      ansible.builtin.include_role:
+        name: "filesystem"

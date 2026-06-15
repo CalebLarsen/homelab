@@ -1,0 +1,18 @@
+---
+# Configuration is seeded via SQL injection in an init container.
+# This task ensures the SQL scripts are present on the host before
+# the container stack is deployed.
+
+- name: Create Cleanuparr SQL Scripts
+  ansible.builtin.template:
+    src: "cleanuparr/{{ item }}.sql.j2"
+    dest: "{{ config_root }}/cleanuparr/{{ item }}.sql"
+    mode: "0644"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+  loop:
+    - inject_users
+    - inject_configs
+  loop_control:
+    label: "{{ item }}.sql"
+  no_log: true

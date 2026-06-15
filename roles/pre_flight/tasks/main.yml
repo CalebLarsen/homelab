@@ -1,4 +1,29 @@
 ---
+- name: Find service definition files
+  ansible.builtin.set_fact:
+    pre_flight_service_files: "{{ lookup('pipe', 'find ' ~ playbook_dir ~ '/services -name service.yml') | split('\n') | select | sort }}"
+
+- name: Initialize services list
+  ansible.builtin.set_fact:
+    services: [] # noqa: var-naming[no-role-prefix]
+    # Compatibility shim: prefers new naming, falls back to legacy if present
+    seerr_secret: "{{ seerr_secret | default(overseerr_secret | default(omit)) }}" # noqa: var-naming[no-role-prefix]
+
+- name: Load service definitions dynamically
+  ansible.builtin.set_fact:
+    services: "{{ services + [lookup('file', item) | from_yaml] }}" # noqa: var-naming[no-role-prefix]
+  loop: "{{ pre_flight_service_files }}"
+  no_log: true
+
+- name: Verify services loaded correctly
+  ansible.builtin.assert:
+    that:
+      - services is defined
+      - services | type_debug == 'list'
+      - services | length > 0
+    fail_msg: "Failed to load services dynamically. Check services/*/service.yml files."
+    quiet: true
+
 - name: Verify required secrets are present
   ansible.builtin.assert:
     that:
@@ -12,13 +37,13 @@
     fail_msg: "One or more critical secrets are missing or empty. Check inventory/group_vars/all/secrets.sops.yml"
     quiet: true
 
-- name: Verify Overseerr user configuration
+- name: Verify Seerr user configuration
   ansible.builtin.assert:
     that:
-      - overseerr_secret.users is defined
-      - overseerr_secret.users | type_debug == 'list'
-      - overseerr_secret.users | length > 0
-    fail_msg: "Overseerr user list is missing or invalid."
+      - seerr_secret.users is defined
+      - seerr_secret.users | type_debug == 'list'
+      - seerr_secret.users | length > 0
+    fail_msg: "Seerr user list is missing or invalid."
     quiet: true
 
 - name: Verify Discord configuration (if used)

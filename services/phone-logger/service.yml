@@ -1,0 +1,8 @@
+---
+name: phone-logger
+group: utils
+port: 5001
+image: "phone-logger:local"
+build_local: true
+source_repo: "https://github.com/CalebLarsen/phone-logger.git"
+source_branch: "main"

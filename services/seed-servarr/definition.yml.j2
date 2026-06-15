@@ -5,7 +5,7 @@
       - ADMIN_PASSWORD={{ admin_password }}
     volumes:
       - "{{ config_root }}:/config"
-      - "{{ service_manager_project_root }}/seed-servarr/seed-servarr.py:/seed.py:ro"
+      - "{{ homelab_project_root }}/seed-servarr/seed-servarr.py:/seed.py:ro"
     command: ["python", "/seed.py"]
     networks:
       - "{{ docker_network }}"

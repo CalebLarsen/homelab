@@ -1,0 +1,9 @@
+---
+- name: Prepare
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Install cron
+      ansible.builtin.apt:
+        name: cron
+        update_cache: true

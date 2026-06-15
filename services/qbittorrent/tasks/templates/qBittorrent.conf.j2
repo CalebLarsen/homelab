@@ -1,0 +1,26 @@
+[BitTorrent]
+ExcludedFileNamesEnabled=true
+Session\AdditionalTrackers={{ homelab_qbittorrent_trackers | join('\\n') }}
+Session\AddTrackersEnabled=true
+Session\ExcludedFileNames={{ qbittorrent.excluded_file_names | join(', ') }}
+# Must be false — gluetun's NAT-PMP-forwarded port is dynamic, and the
+# VPN_PORT_FORWARDING_UP_COMMAND hook pushes it via the WebUI API. With
+# UseRandomPort=true, qBittorrent picks a random port at boot AND silently
+# ignores listen_port updates from the API. Disable so the hook is
+# authoritative. See roles/service_manager/files/gluetun-qbittorrent-port-update.sh.
+Session\UseRandomPort=false
+
+[LegalNotice]
+Accepted=true
+
+[Preferences]
+Downloads\SavePath={{ qbittorrent.save_path }}
+Downloads\TempPath={{ qbittorrent.incomplete_path }}
+Downloads\TempPathEnabled=true
+WebUI\Address=0.0.0.0
+WebUI\LocalHostAuthentication=false
+WebUI\Password_PBKDF2="{{ homelab_qbittorrent_hash }}"
+WebUI\Port={{ item.port }}
+WebUI\WhitelistedSubnets=127.0.0.1/32, 192.168.0.0/16
+Connection\Interface=tun0
+Connection\InterfaceName=tun0

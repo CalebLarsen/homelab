@@ -1,0 +1,95 @@
+---
+# roles/docker_orchestrator/tasks/main.yml
+
+- name: Run per-service pre-deploy configuration
+  ansible.builtin.include_tasks: "../../../services/{{ item.name }}/tasks/main.yml"
+  loop: "{{ services | selectattr('ci_only', 'undefined') | list if not ci_infrastructure_deploy | default(false) else services }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: "query('fileglob', 'services/' + item.name + '/tasks/main.yml') | length > 0"
+
+- name: Debug service loading
+  ansible.builtin.debug:
+    msg: "Loaded {{ services | length }} services. Groups: {{ service_groups | map(attribute='name') | list }}"
+  run_once: true
+
+- name: Render Grouped Docker Compose templates
+  ansible.builtin.template:
+    src: grouped_compose.yml.j2
+    dest: "{{ homelab_project_root }}/{{ item.name }}.yml"
+    mode: "0644"
+  loop: "{{ service_groups }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    group_name: "{{ item.name }}"
+    active_services: >-
+      {{ services | selectattr('group', 'equalto', item.name)
+         | selectattr('ci_only', 'undefined') | list
+         if not ci_infrastructure_deploy | default(false)
+         else services | selectattr('group', 'equalto', item.name) | list }}
+  when: active_services | length > 0
+
+# We still need to reclaim names because we are changing project names (e.g. from 'sonarr' to 'servarr')
+- name: Find containers occupying service names
+  community.docker.docker_container_info:
+    name: "{{ item.name }}"
+  loop: "{{ services | selectattr('ci_only', 'undefined') | list if not ci_infrastructure_deploy | default(false) else services }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: docker_orchestrator_container_info
+
+- name: Reclaim names held by unmanaged containers
+  community.docker.docker_container:
+    name: "{{ _c.item.name }}"
+    state: absent
+  loop: "{{ docker_orchestrator_container_info.results }}"
+  loop_control:
+    loop_var: _c
+    label: "{{ _c.item.name }}"
+  vars:
+    _container: "{{ _c['container'] | default({}) }}"
+    _config: "{{ _container['Config'] | default({}) }}"
+    _labels: "{{ _config['Labels'] | default({}) }}"
+    _project: "{{ _labels['com.docker.compose.project'] | default('') }}"
+    _working_dir: "{{ _labels['com.docker.compose.project.working_dir'] | default('') }}"
+  when:
+    - _c.exists | default(false)
+    # Reclaim if the project name doesn't match OR if the working directory differs.
+    # This catches "adopted" containers from old/different deployment paths.
+    - _project != _c.item.group or _working_dir != homelab_project_root
+
+- name: Deploy Core Stack (includes Gluetun)
+  community.docker.docker_compose_v2:
+    project_name: core
+    project_src: "{{ homelab_project_root }}"
+    files: ["core.yml"]
+    state: present
+    pull: missing
+    remove_orphans: true
+  register: docker_orchestrator_core_deploy
+  when: not ansible_check_mode
+
+- name: Wait for Gluetun to be healthy
+  community.docker.docker_container_info:
+    name: gluetun
+  register: docker_orchestrator_gluetun_info
+  until: docker_orchestrator_gluetun_info.container.State.Health.Status == 'healthy'
+  retries: 30
+  delay: 5
+  when: "'gluetun' in services | map(attribute='name') | list"
+
+- name: Deploy remaining Service Groups
+  community.docker.docker_compose_v2:
+    project_name: "{{ item.name }}"
+    project_src: "{{ homelab_project_root }}"
+    files: ["{{ item.name }}.yml"]
+    state: present
+    pull: missing
+    remove_orphans: true
+    # Recreate if core (gluetun) changed
+    recreate: "{{ 'always' if docker_orchestrator_core_deploy.changed | default(false) else 'auto' }}"
+  loop: "{{ service_groups | rejectattr('name', 'equalto', 'core') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode

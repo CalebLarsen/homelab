@@ -22,7 +22,7 @@ Review the current user list in your secrets to identify who needs labels.
 For each guest user, add a `label` field. This string will be used as both the Sonarr/Radarr tag and the Plex Label.
 
 ```yaml
-overseerr_secret:
+seerr_secret:
   users:
     - { email: "admin@example.com", permissions: 2 }
     - { email: "guest@example.com", permissions: 32, label: "guest-name" }
@@ -44,7 +44,7 @@ Update the API provisioning to ensure Seerr's "Tag Requests" setting is enabled 
   ansible.builtin.uri:
     url: "http://localhost:5055/api/v1/settings/{{ item }}/0"
     method: PUT
-    headers: { X-Api-Key: "{{ overseerr_secret.api_key }}" }
+    headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
     body_format: json
     body: { tagRequests: true }
     status_code: [200, 201, 400]
@@ -61,7 +61,7 @@ Run `make deploy` to push the configuration to your Seerr instance.
 - Modify: `roles/service_manager/templates/kometa_config.yml.j2`
 
 - [ ] **Step 1: Implement dynamic label operations**
-Update the Kometa configuration template to iterate over all users in `overseerr_secret.users` who have a `label` defined.
+Update the Kometa configuration template to iterate over all users in `seerr_secret.users` who have a `label` defined.
 
 ```yaml
 libraries:
@@ -69,7 +69,7 @@ libraries:
     remove_overlays: false
     operations:
       label:
-{% for user in overseerr_secret.users if user.label is defined %}
+{% for user in seerr_secret.users if user.label is defined %}
         - name: {{ user.label }}
           radarr_tag: {{ user.label }}
 {% endfor %}
@@ -77,7 +77,7 @@ libraries:
     remove_overlays: false
     operations:
       label:
-{% for user in overseerr_secret.users if user.label is defined %}
+{% for user in seerr_secret.users if user.label is defined %}
         - name: {{ user.label }}
           sonarr_tag: {{ user.label }}
 {% endfor %}

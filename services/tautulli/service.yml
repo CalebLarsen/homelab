@@ -1,0 +1,5 @@
+---
+name: tautulli
+group: media
+port: 8181
+image: "lscr.io/linuxserver/tautulli:v2.15.2-ls189@sha256:a9b699b5cdbc3a79c1d05a250daf1f9f9cba76dc8628d6caeffdbc99b42d8625"

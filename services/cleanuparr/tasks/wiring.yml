@@ -1,0 +1,7 @@
+---
+- name: Wait for Cleanuparr API to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:11011/api/health"
+    status_code: [200, 401, 403]
+  retries: 5
+  delay: 5

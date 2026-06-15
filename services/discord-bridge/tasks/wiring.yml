@@ -1,0 +1,7 @@
+---
+- name: Wait for Discord Bridge
+  ansible.builtin.wait_for:
+    port: 9000
+    host: localhost
+    delay: 2
+    timeout: 30

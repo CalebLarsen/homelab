@@ -1,0 +1,4 @@
+---
+name: sonarr
+group: servarr
+port: 8989

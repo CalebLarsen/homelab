@@ -1,0 +1,21 @@
+---
+- name: Wait for Prowlarr API
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/system/status?apikey={{ api_keys.prowlarr }}"
+    method: GET
+  register: homelab_prowlarr_status
+  until: homelab_prowlarr_status.status == 200
+  retries: 10
+  delay: 5
+  no_log: true
+
+- name: Run Prowlarr Tasks
+  ansible.builtin.include_tasks: indexers.yml
+
+- name: Get existing Prowlarr applications
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/applications"
+    method: GET
+    headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
+  register: homelab_prowlarr_apps
+  no_log: true

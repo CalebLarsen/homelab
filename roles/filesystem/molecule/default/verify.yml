@@ -1,0 +1,32 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  vars:
+    # Use role name as prefix for local test variables to satisfy lint
+    filesystem_test_project_root: "/root/deploy"
+    config_root: "/tmp/config"
+  tasks:
+    - name: Check project root directory
+      ansible.builtin.stat:
+        path: "{{ filesystem_test_project_root }}"
+      register: filesystem_project_root_stat
+    - name: Assert project root exists
+      ansible.builtin.assert:
+        that: filesystem_project_root_stat.stat.isdir
+
+    - name: Check service directory
+      ansible.builtin.stat:
+        path: "{{ filesystem_test_project_root }}/test_service"
+      register: filesystem_service_dir_stat
+    - name: Assert service directory exists
+      ansible.builtin.assert:
+        that: filesystem_service_dir_stat.stat.isdir
+
+    - name: Check config directory
+      ansible.builtin.stat:
+        path: "{{ config_root }}/test_service"
+      register: filesystem_config_dir_stat
+    - name: Assert config directory exists
+      ansible.builtin.assert:
+        that: filesystem_config_dir_stat.stat.isdir

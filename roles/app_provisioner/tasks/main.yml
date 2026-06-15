@@ -1,0 +1,17 @@
+---
+# roles/app_provisioner/tasks/main.yml
+
+- name: Run per-service wiring tasks
+  ansible.builtin.include_tasks: "../../../services/{{ item.name }}/tasks/wiring.yml"
+  loop: "{{ services }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - not ansible_check_mode
+    - "query('fileglob', 'services/' + item.name + '/tasks/wiring.yml') | length > 0"
+
+- name: Run Audiobookshelf post-deploy provisioning
+  ansible.builtin.include_tasks: "../../../services/audiobookshelf/tasks/post_deploy.yml"
+  when:
+    - not ansible_check_mode
+    - "'audiobookshelf' in services | map(attribute='name') | list"

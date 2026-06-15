@@ -1,0 +1,14 @@
+name: {{ group_name }}
+
+services:
+{% for service in services %}
+{% if service.group == group_name and (not service.ci_only | default(false) or ci_infrastructure_deploy | default(false)) %}
+  # --- {{ service.name }} ---
+{% set service_config = service %}
+{% include "services/" ~ service.name ~ "/definition.yml.j2" %}
+{% endif %}
+{% endfor %}
+
+networks:
+  "{{ docker_network }}":
+    external: true

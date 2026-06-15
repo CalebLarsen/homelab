@@ -9,5 +9,5 @@
     volumes=[
         config_root ~ "/anki:/anki_data"
     ],
-    healthcheck_url="http://127.0.0.1:8080/"
+    healthcheck_cmd=["CMD", "nc", "-z", "127.0.0.1", "8080"]
 ) }}

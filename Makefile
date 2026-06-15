@@ -1,16 +1,27 @@
 .DEFAULT_GOAL := deploy
-.PHONY: deploy clean edit-secrets _init check new-service lint verify-local deps
+.PHONY: deploy clean edit-secrets _init check new-service lint verify-local deps verify-templates test
 
 # Extract remote IP from inventory
 REMOTE_IP := $(shell grep ansible_host inventory/hosts.yml | awk '{print $$2}')
 
 deps:
-	@echo "==> Installing Ansible dependencies..."
+	@echo "==> Installing dependencies..."
 	@ansible-galaxy install -r requirements.yml
+	@if ! command -v molecule >/dev/null 2>&1; then \
+		pipx install molecule; \
+		pipx inject molecule molecule-plugins[docker] paramiko; \
+	fi
 	@if [ ! -d roles/mitogen ]; then \
 		echo "==> Installing Mitogen..."; \
 		git clone --depth 1 --branch v0.3.49 https://github.com/mitogen-hq/mitogen.git roles/mitogen; \
 	fi
+
+test: lint check verify-templates
+	@echo "==> Running Role Molecule tests..."
+	@$(MAKE) test-role ROLE=pre_flight
+	@$(MAKE) test-role ROLE=host_cron
+	@$(MAKE) test-role ROLE=filesystem
+	@echo "==> All tests passed!"
 
 check: deps
 	ansible-playbook site.yml --syntax-check
@@ -22,10 +33,14 @@ lint: deps
 	pre-commit run --all-files
 
 # "Poor-man's CI" — what cloud CI would run, but local. Lint, syntax-check,
-# and a check-mode dry run against the live host (no changes applied).
-verify-local: lint check
+# template validation, and a check-mode dry run against the live host.
+verify-local: lint check verify-templates
 	@echo "==> Dry-run against live host (no changes will be applied)"
 	ansible-playbook site.yml --check --diff
+
+verify-templates:
+	@echo "==> Validating Docker Compose templates..."
+	ansible-playbook validate-templates.yml
 
 clean:
 	@echo "==> Cleaning homelab state..."
@@ -45,7 +60,7 @@ new-service:
 #   make test-role ROLE=host_cron
 test-role: deps
 	@echo "==> Testing role: $(ROLE) (using remote Docker host: $(REMOTE_IP))"
-	@cd roles/$(ROLE) && DOCKER_HOST="ssh://caleb@$(REMOTE_IP)" molecule test
+	@cd roles/$(ROLE) && DOCKER_HOST="ssh://caleb@$(REMOTE_IP)" ANSIBLE_STRATEGY=linear ANSIBLE_PIPELINING=False ANSIBLE_REMOTE_TMP=/tmp ANSIBLE_ROLES_PATH=../../.. molecule test
 
 # Internal task to ensure Age key and .sops.yaml are ready
 _init: deps

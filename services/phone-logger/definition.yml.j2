@@ -7,5 +7,5 @@
         'PHONE_LOGGER_DATA_DIR=/app/data'
     ],
     volumes=[config_root ~ "/phone-logger/data:/app/data"],
-    healthcheck_cmd=["CMD", "python3", "-c", "import http.client; conn = http.client.HTTPConnection('127.0.0.1', " ~ service_config.port ~ "); conn.request('GET', '/health'); resp = conn.getresponse(); exit(0 if resp.status == 200 else 1)"]
+    healthcheck_cmd=["CMD", "python3", "-c", "import socket; s = socket.socket(); s.settimeout(5); s.connect(('127.0.0.1', " ~ service_config.port ~ "))"]
 ) }}

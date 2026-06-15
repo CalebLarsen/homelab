@@ -1,0 +1,8 @@
+---
+- name: Prepare
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Install requests
+      ansible.builtin.pip:
+        name: requests

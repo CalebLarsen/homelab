@@ -16,7 +16,7 @@
       addresses: "10.0.0.1"
     plex_secret:
       online_token: "mock-plex-token"
-    overseerr_secret:
+    seerr_secret:
       users:
         - label: "Admin"
           email: "admin@example.com"

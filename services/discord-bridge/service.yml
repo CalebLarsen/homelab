@@ -1,0 +1,5 @@
+---
+name: discord-bridge
+group: utils
+port: 9000
+image: "python:3.12-alpine@sha256:6f22019c4ced1e4ee3965efe87ccae4d26213d73735c5558b62a66e75db33055"

@@ -1,0 +1,86 @@
+---
+- name: Validate Docker Compose Templates
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    homelab_project_root: "{{ playbook_dir }}"
+    config_root: "/mock/config/root"
+    puid: 1000
+    pgid: 1000
+    timezone: "UTC"
+    ci_infrastructure_deploy: true
+    docker_network: "homelab_network"
+
+  tasks:
+    - name: Find service definition files
+      ansible.builtin.set_fact:
+        _service_files: "{{ lookup('pipe', 'find ' ~ homelab_project_root ~ '/services -name service.yml') | split('\n') | select | sort }}"
+
+    - name: Initialize services list
+      ansible.builtin.set_fact:
+        services: []
+
+    - name: Load service definitions dynamically
+      ansible.builtin.set_fact:
+        services: "{{ services + [lookup('file', item) | from_yaml] }}"
+      loop: "{{ _service_files }}"
+
+    - name: Load service_groups from inventory
+      ansible.builtin.include_vars:
+        file: "{{ homelab_project_root }}/inventory/group_vars/all/main.yml"
+        name: vars_main
+
+    - name: Set service_groups
+      ansible.builtin.set_fact:
+        service_groups: "{{ vars_main.service_groups }}"
+
+    - name: Create temporary directory for templates
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: _homelab_templates
+      register: temp_dir
+
+    - name: Render grouped compose templates
+      ansible.builtin.template:
+        src: "{{ homelab_project_root }}/roles/docker_orchestrator/templates/grouped_compose.yml.j2"
+        dest: "{{ temp_dir.path }}/{{ item.name }}.yml"
+        mode: "0644"
+      loop: "{{ service_groups }}"
+      vars:
+        group_name: "{{ item.name }}"
+        # Define mock secrets to prevent UndefinedError during template rendering
+        anki_secret:
+          sync_user1: "mock"
+          sync_user2: "mock"
+        cleanuparr_secret:
+          api_key: "mock"
+          password_hash: "mock"
+        discord_secret:
+          bot_token: "mock"
+        phone_logger_secret:
+          api_key: "mock"
+        plex_secret:
+          claim_token: "mock"
+        prowlarr_secret:
+          api_key: "mock"
+        radarr_secret:
+          api_key: "mock"
+        sonarr_secret:
+          api_key: "mock"
+        vpn_secret:
+          private_key: "mock"
+          addresses: "mock"
+          provider: "mock"
+
+    - name: Validate rendered YAML files
+      ansible.builtin.command:
+        cmd: "yamllint {{ temp_dir.path }}/{{ item.name }}.yml"
+      loop: "{{ service_groups }}"
+      changed_when: false
+
+    - name: Cleanup temporary directory
+      ansible.builtin.file:
+        path: "{{ temp_dir.path }}"
+        state: absent
+      when: temp_dir.path is defined

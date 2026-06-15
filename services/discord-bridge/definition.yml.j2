@@ -7,7 +7,7 @@
       - PGID={{ pgid }}
       - TZ="{{ timezone }}"
       - DISCORD_BOT_TOKEN={{ discord_secret.bot_token }}
-      - 'USERS_JSON={{ overseerr_secret.users | to_json }}'
+      - 'USERS_JSON={{ seerr_secret.users | to_json }}'
     volumes:
       - "{{ config_root }}/discord-bridge:/app"
 {% set use_vpn = service_config.use_vpn | default(false) %}

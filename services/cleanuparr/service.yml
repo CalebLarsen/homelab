@@ -1,0 +1,5 @@
+---
+name: cleanuparr
+group: servarr
+port: 11011
+image: "ghcr.io/cleanuparr/cleanuparr:2.9.8@sha256:563b01707cb4509731793ce03bfc26f08640f4194908cc1fa6782e75f59dc405"

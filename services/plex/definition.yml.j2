@@ -12,7 +12,7 @@
       - VERSION=docker
       - PLEX_CLAIM={{ plex_secret.claim_token | default('') }}
     devices:
-     - /dev/dri:/dev/dri
+      - /dev/dri:/dev/dri
     volumes:
       - "{{ config_root }}/plex:/config"
       - "{{ data_root }}/media:/data/media"

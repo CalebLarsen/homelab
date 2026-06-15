@@ -42,10 +42,10 @@ the next deploy.
 make edit-secrets
 ```
 
-In the editor, append the new entry under `overseerr_secret.users`:
+In the editor, append the new entry under `seerr_secret.users`:
 
 ```yaml
-overseerr_secret:
+seerr_secret:
   users:
     - { email: "you@example.com", permissions: 2 }            # admin (you)
     - { email: "newuser@example.com", permissions: 32 }       # standard requester
@@ -82,7 +82,7 @@ The playbook will:
 
 1. Trigger Overseerr's "import Plex friends" sync (it pulls everyone you
    shared with in Step 1).
-2. Look up each entry in `overseerr_secret.users` by email and apply the
+2. Look up each entry in `seerr_secret.users` by email and apply the
    permissions you configured.
 
 If the user doesn't appear in Overseerr after a successful deploy, the most
@@ -115,7 +115,7 @@ the guest. Everything else in your library will remain hidden from them.
 
 | Symptom | Likely cause |
 |---------|--------------|
-| User missing from Overseerr after deploy | Plex invite not yet accepted, or email in `overseerr_secret.users` doesn't exactly match their Plex account email |
+| User missing from Overseerr after deploy | Plex invite not yet accepted, or email in `seerr_secret.users` doesn't exactly match their Plex account email |
 | "No requests permission" in Overseerr UI | `permissions:` value is too restrictive; bump to `48` (movies + TV) or `2` (admin) |
 | User can request but content never imports | Sonarr/Radarr root folders or quality profile not set — check the deploy verify output |
 | Kometa labels not applied | `label:` missing from the user entry, or Kometa hasn't run since you added it (it's a once-per-deploy run) |

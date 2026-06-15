@@ -33,9 +33,9 @@ repos:
     rev: v26.4.0
     hooks:
       - id: ansible-lint
-        # Limit to playbooks/roles/inventory; running on every YAML file
+        # Limit to playbooks/roles/inventory/services; running on every YAML file
         # produces a lot of irrelevant noise.
-        files: ^(site\.yml|clean\.yml|roles/.*\.ya?ml|inventory/.*\.ya?ml)$
+        files: ^(site\.yml|clean\.yml|roles/.*\.ya?ml|inventory/.*\.ya?ml|services/.*\.ya?ml)$
         # Skip the encrypted secrets file — ansible-lint can't parse it.
         exclude: ^inventory/group_vars/all/secrets\.sops\.ya?ml$
 

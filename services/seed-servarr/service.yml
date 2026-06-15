@@ -1,0 +1,6 @@
+---
+name: seed-servarr
+group: core
+port: 0
+ci_only: true
+image: "python:3.11-slim-bookworm@sha256:e2d3af735aff6eeee600b1933bedd99da6645fedf572cc12ef4cc1331f2ceebe"

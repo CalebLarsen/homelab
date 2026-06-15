@@ -1,0 +1,45 @@
+---
+# roles/filesystem/tasks/main.yml
+
+- name: Ensure shared Docker network exists
+  community.docker.docker_network:
+    name: "{{ docker_network }}"
+  when: not homelab_skip_docker_network | default(false)
+
+- name: Ensure appdata and deployment directories exist (Parallel)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(omit) }}"
+    group: "{{ item.group | default(omit) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop: "{{ _combined_dirs | from_json }}"
+  loop_control:
+    label: "{{ item.path }}"
+  vars:
+    _combined_dirs: >-
+      {% set dirs = [] %}
+      {% set _ = dirs.append({'path': homelab_project_root}) %}
+      {% for s in services %}
+        {% if not (s.ci_only | default(false)) or (ci_infrastructure_deploy | default(false)) %}
+          {% set _ = dirs.append({'path': homelab_project_root ~ '/' ~ s.name}) %}
+          {% set _ = dirs.append({'path': config_root ~ '/' ~ s.name, 'owner': puid, 'group': pgid}) %}
+        {% endif %}
+      {% endfor %}
+      {{ dirs | to_json }}
+  # Async to fire all at once
+  async: "{{ homelab_filesystem_async_timeout | default(60) }}"
+  poll: "{{ homelab_filesystem_async_poll | default(0) }}"
+  register: filesystem_dir_creation
+
+- name: Wait for directory creation
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop: "{{ filesystem_dir_creation.results }}"
+  register: filesystem_dir_status
+  until: filesystem_dir_status.finished
+  retries: 30
+  delay: 1
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: homelab_filesystem_async_poll | default(0) == 0

@@ -18,5 +18,5 @@
     internal_port=11011,
     env=['PORT=11011'],
     depends_on={'cleanuparr-init': 'service_completed_successfully'},
-    healthcheck_cmd=["CMD-SHELL", "wget -qO- http://127.0.0.1:11011/api/health || wget -qO- http://127.0.0.1:11011/ || exit 1"]
+    healthcheck_cmd=["CMD-SHELL", "curl -f http://127.0.0.1:11011/api/health || curl -f http://127.0.0.1:11011/ || exit 1"]
 ) }}

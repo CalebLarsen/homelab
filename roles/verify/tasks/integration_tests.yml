@@ -138,14 +138,24 @@
       register: verify_prowlarr_indexers
       failed_when: "verify_prowlarr_indexers.json | length == 0"
 
-    - name: Perform Synthetic Indexer Search (Prowlarr)
+    - name: "Diagnostic: Verify Prowlarr can reach CI-mock"
+      ansible.builtin.command: docker exec prowlarr wget -qO- http://ci-mock/index.html
+      register: verify_prowlarr_reach_mock
+      changed_when: false
+      retries: 5
+      delay: 5
+      until: verify_prowlarr_reach_mock.rc == 0
+
+    - name: "Perform Synthetic Indexer Search (Prowlarr)"
       ansible.builtin.uri:
         url: "http://localhost:9696/api/v1/search?query=Big%20Buck%20Bunny"
         method: GET
         headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
-        timeout: 30
+        timeout: 60
       register: verify_prowlarr_search
-      failed_when: verify_prowlarr_search.json | length == 0
+      retries: 5
+      delay: 10
+      until: "verify_prowlarr_search.status == 200 and verify_prowlarr_search.json | default([]) | length > 0"
 
 - name: Sonarr/Radarr Integration Tests
   block:

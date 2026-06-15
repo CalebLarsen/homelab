@@ -4,7 +4,7 @@
     user: "{{ puid }}:{{ pgid }}"
     volumes:
       - "{{ config_root }}/recyclarr:/config"
-      - "{{ service_manager_project_root }}/recyclarr/recyclarr.yml:/config/recyclarr.yml:ro"
+      - "{{ homelab_project_root }}/recyclarr/recyclarr.yml:/config/recyclarr.yml:ro"
     environment:
       - TZ="{{ timezone }}"
     networks:

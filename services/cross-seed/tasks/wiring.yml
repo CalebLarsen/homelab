@@ -1,0 +1,18 @@
+---
+- name: Get Prowlarr indexers for cross-seed
+  ansible.builtin.uri:
+    url: "http://localhost:9696/api/v1/indexer"
+    method: GET
+    headers: { X-Api-Key: "{{ api_keys.prowlarr }}" }
+  register: homelab_prowlarr_indexers
+
+- name: Template cross-seed config with discovered indexers
+  ansible.builtin.template:
+    src: cross-seed-config.js.j2
+    dest: "{{ config_root }}/cross-seed/config.js"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  vars:
+    cross_seed_indexers: "{{ homelab_prowlarr_indexers.json | selectattr('enable', 'equalto', true) | list }}"
+  notify: Restart cross-seed

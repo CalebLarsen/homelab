@@ -1,0 +1,8 @@
+---
+name: anki
+group: utils
+subdomain: "anki"
+port: 27701
+internal_port: 8080
+public: true
+image: "jeankhawand/anki-sync-server:25.07@sha256:bac64aef13fbfe3e2e3ce8c25da732763bcdffe856225e366d4cda54eb829ef9"

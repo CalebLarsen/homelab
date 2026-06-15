@@ -14,5 +14,6 @@
         'ABB_HOSTNAME=audiobookbay.lu',
         'FLASK_PORT=' ~ service_config.port
     ],
-    depends_on={'qbittorrent': 'service_healthy'}
+    depends_on={'qbittorrent': 'service_healthy'},
+    healthcheck_cmd=["CMD", "python3", "-c", "import socket; s = socket.socket(); s.settimeout(5); s.connect(('127.0.0.1', " ~ service_config.port ~ "))"]
 ) }}

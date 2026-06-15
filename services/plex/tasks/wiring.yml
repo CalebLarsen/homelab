@@ -1,0 +1,39 @@
+---
+- name: Get existing Plex libraries
+  ansible.builtin.uri:
+    url: "http://localhost:32400/library/sections"
+    method: GET
+    headers:
+      X-Plex-Token: "{{ plex_secret.online_token }}"
+      Accept: application/json
+  register: homelab_plex_libraries
+  failed_when: false
+
+- name: Provision Plex libraries
+  ansible.builtin.uri:
+    url: >-
+      http://localhost:32400/library/sections?name={{ item.name | urlencode
+      }}&type={{ item.type
+      }}&agent={{ 'tv.plex.agents.movie' if item.type == 'movie' else 'tv.plex.agents.series'
+      }}&scanner={{ ('Plex Movie' if item.type == 'movie' else 'Plex TV Series') | urlencode
+      }}&language=en-US&location={{ item.path | urlencode }}
+    method: POST
+    headers: { X-Plex-Token: "{{ plex_secret.online_token }}" }
+    status_code: 201
+  loop: "{{ seerr.libraries }}"
+  when:
+    - "homelab_plex_libraries.status == 200"
+    - >-
+      item.name not in (
+        homelab_plex_libraries.json.MediaContainer.Directory
+        | default([]) | map(attribute='title') | list
+      )
+
+- name: Enable Plex automatic library scanning
+  ansible.builtin.uri:
+    url: >-
+      http://localhost:32400/:/prefs?FSEventLibraryUpdatesEnabled=1&FSEventLibraryPartialScanEnabled=1&ScheduledLibraryUpdatesEnabled=1&ScheduledLibraryUpdateInterval=3600
+    method: PUT
+    headers: { X-Plex-Token: "{{ plex_secret.online_token }}" }
+    status_code: [200]
+  when: "homelab_plex_libraries.status == 200"

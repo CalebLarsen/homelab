@@ -1,0 +1,62 @@
+---
+# roles/ci_infrastructure/tasks/main.yml
+
+- name: Deploy CI mock XML files
+  ansible.builtin.copy:
+    dest: "{{ homelab_project_root }}/ci-mock/{{ item.file }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - file: ci-indexer.xml
+      content: |
+        <?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+          <channel>
+            <title>CI Internal Mock Indexer</title>
+            <item>
+              <title>Big Buck Bunny (2008)</title>
+              <guid isPermaLink="false">ci-mock-1</guid>
+              <link>http://ci-mock/ci-indexer.xml</link>
+              <pubDate>Fri, 12 Jun 2026 12:00:00 +0000</pubDate>
+              <size>1000000</size>
+              <enclosure url="http://ci-mock/ci-indexer.xml" length="1000000" type="application/x-bittorrent" />
+              <torznab:attr name="category" value="2000"/>
+              <torznab:attr name="seeders" value="100"/>
+              <torznab:attr name="peers" value="10"/>
+            </item>
+          </channel>
+        </rss>
+    - file: index.html
+      content: |
+        <html><body>CI Mock Active</body></html>
+    - file: ci-caps.xml
+      content: |
+        <?xml version="1.0" encoding="UTF-8"?>
+        <caps>
+          <server title="CI Mock" />
+          <categories>
+            <category id="2000" name="Movies" />
+          </categories>
+        </caps>
+    - file: nginx.conf
+      content: |
+        events {}
+        http {
+            include /etc/nginx/mime.types;
+            server {
+                listen 80;
+                root /usr/share/nginx/html;
+                location / {
+                    if ($arg_t = "caps") {
+                        rewrite ^ /ci-caps.xml break;
+                    }
+                    rewrite ^ /ci-indexer.xml break;
+                }
+            }
+        }
+
+- name: Deploy Servarr seeding script
+  ansible.builtin.copy:
+    src: scripts/seed-servarr.py
+    dest: "{{ homelab_project_root }}/seed-servarr/seed-servarr.py"
+    mode: "0600"

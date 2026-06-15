@@ -1,0 +1,6 @@
+---
+- name: Template Recyclarr config file
+  ansible.builtin.template:
+    src: "recyclarr.yml.j2"
+    dest: "{{ homelab_project_root }}/recyclarr/recyclarr.yml"
+    mode: "0644"

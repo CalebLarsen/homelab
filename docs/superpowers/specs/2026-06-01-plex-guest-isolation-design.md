@@ -13,7 +13,7 @@ This design implements a multi-tenant isolation system for Plex users, allowing 
 
 ### 1. Seerr (Request Portal)
 - **Configuration**: Enable `tagRequests` in Radarr and Sonarr settings.
-- **User Management**: Update `overseerr_secret.users` in `secrets.sops.yml` to include a `label` field for each guest.
+- **User Management**: Update `seerr_secret.users` in `secrets.sops.yml` to include a `label` field for each guest.
 - **Automation**: When a user makes a request, Seerr will apply their `label` as a tag in Radarr/Sonarr.
 
 ### 2. Radarr / Sonarr (Media Management)
@@ -21,7 +21,7 @@ This design implements a multi-tenant isolation system for Plex users, allowing 
 - **Behavior**: Multiple users requesting the same item will result in multiple tags on that item.
 
 ### 3. Kometa (Metadata Sync)
-- **Configuration**: Update `kometa_config.yml.j2` to iterate over all users in `overseerr_secret.users`.
+- **Configuration**: Update `kometa_config.yml.j2` to iterate over all users in `seerr_secret.users`.
 - **Logic**: For each user with a `label`, Kometa will:
     - Read items from Radarr/Sonarr that have that tag.
     - Apply the corresponding "Label" to those items in Plex.
@@ -42,7 +42,7 @@ This design implements a multi-tenant isolation system for Plex users, allowing 
 - **`roles/service_manager/tasks/api_wiring.yml`**: Ensure Seerr's `tagRequests` setting is provisioned.
 
 ### Secrets
-- **`inventory/group_vars/all/secrets.sops.yml`**: Update `overseerr_secret.users` schema.
+- **`inventory/group_vars/all/secrets.sops.yml`**: Update `seerr_secret.users` schema.
 
 ## Data Flow
 1. **Request**: Guest logs into Seerr and requests a movie.

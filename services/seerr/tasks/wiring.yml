@@ -1,0 +1,289 @@
+---
+- name: Check if Seerr API is authenticated
+  ansible.builtin.uri:
+    url: "http://localhost:5055/api/v1/user"
+    method: GET
+    headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
+  register: homelab_seerr_auth_check
+  failed_when: false
+  changed_when: false
+
+- name: Provision Seerr (Only if authenticated)
+  when: "homelab_seerr_auth_check.status == 200"
+  no_log: true
+  block:
+    - name: Trigger Plex user import
+      ansible.builtin.uri:
+        url: "http://localhost:5055/api/v1/settings/plex/users"
+        method: POST
+        headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
+      failed_when: false
+
+    - name: Get existing Seerr users
+      ansible.builtin.uri:
+        url: "http://localhost:5055/api/v1/user"
+        method: GET
+        headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
+      register: homelab_existing_users
+
+    - name: Fetch existing tags from Radarr
+      ansible.builtin.uri:
+        url: "http://localhost:7878/api/v3/tag"
+        method: GET
+        headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+      register: homelab_radarr_tags_raw
+
+    - name: Fetch existing tags from Sonarr
+      ansible.builtin.uri:
+        url: "http://localhost:8989/api/v3/tag"
+        method: GET
+        headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+      register: homelab_sonarr_tags_raw
+
+    - name: Set tag facts
+      ansible.builtin.set_fact:
+        homelab_radarr_tags: "{{ homelab_radarr_tags_raw.json }}"
+        homelab_sonarr_tags: "{{ homelab_sonarr_tags_raw.json }}"
+
+    - name: Ensure user tags exist in Radarr
+      ansible.builtin.uri:
+        url: "http://localhost:7878/api/v3/tag"
+        method: POST
+        headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+        body_format: json
+        body: { label: "{{ item.label }}" }
+        status_code: [201]
+      loop: "{{ seerr_secret.users }}"
+      when:
+        - item.label is defined
+        - item.label not in homelab_radarr_tags | map(attribute='label') | list
+      register: homelab_radarr_tags_created
+
+    - name: Ensure user tags exist in Sonarr
+      ansible.builtin.uri:
+        url: "http://localhost:8989/api/v3/tag"
+        method: POST
+        headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+        body_format: json
+        body: { label: "{{ item.label }}" }
+        status_code: [201]
+      loop: "{{ seerr_secret.users }}"
+      when:
+        - item.label is defined
+        - item.label not in homelab_sonarr_tags | map(attribute='label') | list
+      register: homelab_sonarr_tags_created
+
+    - name: Refresh tags if needed
+      when: homelab_radarr_tags_created is changed or homelab_sonarr_tags_created is changed
+      block:
+        - name: Re-fetch tags from Radarr
+          ansible.builtin.uri:
+            url: "http://localhost:7878/api/v3/tag"
+            method: GET
+            headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+          register: homelab_radarr_tags_refreshed
+
+        - name: Re-fetch tags from Sonarr
+          ansible.builtin.uri:
+            url: "http://localhost:8989/api/v3/tag"
+            method: GET
+            headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+          register: homelab_sonarr_tags_refreshed
+
+        - name: Update tag facts
+          ansible.builtin.set_fact:
+            homelab_radarr_tags: "{{ homelab_radarr_tags_refreshed.json }}"
+            homelab_sonarr_tags: "{{ homelab_sonarr_tags_refreshed.json }}"
+
+    - name: Build Kometa tag mapping
+      ansible.builtin.set_fact:
+        homelab_user_tags: "{{ _raw_json | from_json }}"
+      vars:
+        _raw_json: >-
+          {% set results = {} %}
+          {% for u in seerr_secret.users if u.label is defined %}
+            {% set tags = [u.label] %}
+            {% for rt in (homelab_radarr_tags | default([])) %}
+              {% if rt.label is defined and u.label.lower() in rt.label.lower() %}
+                {% set _ = tags.append(rt.label) %}
+              {% endif %}
+            {% endfor %}
+            {% for st in (homelab_sonarr_tags | default([])) %}
+              {% if st.label is defined and u.label.lower() in st.label.lower() %}
+                {% set _ = tags.append(st.label) %}
+              {% endif %}
+            {% endfor %}
+            {% set _ = results.update({u.label: tags | unique | list}) %}
+          {% endfor %}
+          {{ results | to_json }}
+
+    - name: Provision Seerr users
+      ansible.builtin.uri:
+        url: "http://localhost:5055/api/v1/user/{{ item_user.id }}"
+        method: PUT
+        headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
+        body_format: json
+        body:
+          permissions: "{{ item_config.permissions }}"
+      loop: "{{ seerr_secret.users }}"
+      loop_control:
+        loop_var: item_config
+      vars:
+        item_user: "{{ homelab_existing_users.json.results | selectattr('email', 'equalto', item_config.email) | first | default(none) }}"
+      when: item_user is not none
+
+    - name: Get current Seerr Radarr/Sonarr settings
+      ansible.builtin.uri:
+        url: "http://localhost:5055/api/v1/settings/{{ item }}"
+        method: GET
+        headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
+      register: homelab_seerr_settings
+      loop: ["radarr", "sonarr"]
+
+    - name: Enable Seerr Auto-Tagging (Radarr/Sonarr)
+      ansible.builtin.uri:
+        url: "http://localhost:5055/api/v1/settings/{{ item.item }}/0"
+        method: PUT
+        headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
+        body_format: json
+        body: >-
+          {{ item.json[0]
+             | combine({
+                 'tagRequests': true,
+                 'enableSeasonFolders': item.json[0].enableSeasonFolders | default(true)
+               })
+             | dict2items
+             | rejectattr('key', 'equalto', 'id')
+             | list
+             | items2dict }}
+        status_code: [200, 201]
+      loop: "{{ homelab_seerr_settings.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.json | length > 0 and not (item.json[0].tagRequests | default(false))
+
+    - name: Configure Seerr Webhook for Custom Discord Bridge
+      ansible.builtin.uri:
+        url: "http://localhost:5055/api/v1/settings/notifications/webhook"
+        method: POST
+        headers: { X-Api-Key: "{{ seerr_secret.api_key }}" }
+        body_format: json
+        body:
+          enabled: true
+          types: 256 # Media Available
+          options:
+            webhookUrl: "http://discord-bridge:9000/"
+            jsonPayload: "{{ payload_data | to_json }}"
+      vars:
+        payload_data:
+          subject: "{{ '{{' }}subject{{ '}}' }}"
+          message: "{{ '{{' }}message{{ '}}' }}"
+          email: "{{ '{{' }}requestedBy_email{{ '}}' }}"
+
+    - name: Get existing notifications from Radarr
+      ansible.builtin.uri:
+        url: "http://localhost:7878/api/v3/notification"
+        method: GET
+        headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+      register: homelab_radarr_notifications
+
+    - name: Get existing notifications from Sonarr
+      ansible.builtin.uri:
+        url: "http://localhost:8989/api/v3/notification"
+        method: GET
+        headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+      register: homelab_sonarr_notifications
+
+    - name: Register Discord Bridge in Radarr
+      ansible.builtin.uri:
+        url: "http://localhost:7878/api/v3/notification"
+        method: POST
+        headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+        body_format: json
+        body:
+          name: "Discord Bridge"
+          onGrab: false
+          onDownload: true
+          onUpgrade: true
+          onRename: false
+          onMovieDelete: false
+          onSeriesDelete: false
+          onHealthIssue: false
+          onApplicationUpdate: false
+          implementation: "Webhook"
+          configContract: "WebhookSettings"
+          fields:
+            - { name: "url", value: "http://discord-bridge:9000/" }
+            - { name: "method", value: 1 } # POST
+        status_code: [200, 201]
+      when: "'Discord Bridge' not in homelab_radarr_notifications.json | map(attribute='name') | list"
+
+    - name: Register Discord Bridge in Sonarr
+      ansible.builtin.uri:
+        url: "http://localhost:8989/api/v3/notification"
+        method: POST
+        headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+        body_format: json
+        body:
+          name: "Discord Bridge"
+          onGrab: false
+          onDownload: true
+          onUpgrade: true
+          onRename: false
+          onMovieDelete: false
+          onSeriesDelete: false
+          onHealthIssue: false
+          onApplicationUpdate: false
+          implementation: "Webhook"
+          configContract: "WebhookSettings"
+          fields:
+            - { name: "url", value: "http://discord-bridge:9000/" }
+            - { name: "method", value: 1 } # POST
+        status_code: [200, 201]
+      when: "'Discord Bridge' not in homelab_sonarr_notifications.json | map(attribute='name') | list"
+
+    - name: Register Kometa Trigger Script in Radarr
+      ansible.builtin.uri:
+        url: "http://localhost:7878/api/v3/notification"
+        method: POST
+        headers: { X-Api-Key: "{{ api_keys.radarr }}" }
+        body_format: json
+        body:
+          name: "Trigger Kometa"
+          onGrab: false
+          onDownload: true
+          onUpgrade: true
+          onRename: false
+          onMovieDelete: false
+          onSeriesDelete: false
+          onHealthIssue: false
+          onApplicationUpdate: false
+          implementation: "CustomScript"
+          configContract: "CustomScriptSettings"
+          fields:
+            - { name: "path", value: "/config/scripts/trigger-kometa.sh" }
+        status_code: [200, 201]
+      when: "'Trigger Kometa' not in homelab_radarr_notifications.json | map(attribute='name') | list"
+
+    - name: Register Kometa Trigger Script in Sonarr
+      ansible.builtin.uri:
+        url: "http://localhost:8989/api/v3/notification"
+        method: POST
+        headers: { X-Api-Key: "{{ api_keys.sonarr }}" }
+        body_format: json
+        body:
+          name: "Trigger Kometa"
+          onGrab: false
+          onDownload: true
+          onUpgrade: true
+          onRename: false
+          onMovieDelete: false
+          onSeriesDelete: false
+          onHealthIssue: false
+          onApplicationUpdate: false
+          implementation: "CustomScript"
+          configContract: "CustomScriptSettings"
+          fields:
+            - { name: "path", value: "/config/scripts/trigger-kometa.sh" }
+        status_code: [200, 201]
+      when: "'Trigger Kometa' not in homelab_sonarr_notifications.json | map(attribute='name') | list"

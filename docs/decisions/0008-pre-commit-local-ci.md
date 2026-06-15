@@ -103,7 +103,7 @@ Per-task skips currently in place:
 Variable naming convention enforced by `var-naming[no-role-prefix]`:
 every `register:` and `set_fact:` declared inside a role is prefixed
 with the role name (`backup_*`, `cloudflared_*`, `mergerfs_*`,
-`service_manager_*`, `verify_*`). Cross-role play-level variables
+`homelab_*`, `verify_*`). Cross-role play-level variables
 (API keys passed via secrets, the `services` list, etc.) are exempt
 because they're not declared inside roles.
 
